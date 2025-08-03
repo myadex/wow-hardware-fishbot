@@ -12,6 +12,7 @@ use std::path::Path;
 use std::error::Error;
 use std::thread::sleep;
 
+mod keyboard;
 
 /// Initializes and configures the video capture device
 fn capture_init() -> Result<VideoCapture, Box<dyn Error>> {
@@ -186,6 +187,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the video capture device
     let mut cap = capture_init()?;
     
+    // Cast fishing
+    keyboard::press_key(0x1f).unwrap();
+
+    // Wait for bobber beeing placed
+    sleep(Duration::from_millis(2000));
+
     // Capture a frame
     let mut frame = capture_frame(&mut cap)?;
 
