@@ -66,15 +66,13 @@ fn capture_init() -> Result<VideoCapture, Box<dyn Error>> {
 fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
     // Create matrix to hold the frame
     let mut frame = Mat::default();
-   
-    // Capture a single frame
-    //println!("Capturing frame...");
 
     // This is a little hack but we have to some how grab a few frames
     // before we decode it. Otherwise we might get an old frame.
     for _ in 0..5 { 
         cap.grab()?;
     }
+
     // Now decode the latest frame we grabbed
     cap.retrieve(&mut frame, 0)?;
 
@@ -83,9 +81,6 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
         eprintln!("Error: Captured frame is empty");
         return Err("Empty frame captured".into());
     }
-   
-    //println!("Frame captured successfully! Size: {}x{}",
-    //         frame.cols(), frame.rows());
 
     // Convert to grayscale for image processing
     let mut frame_gray = Mat::default();
@@ -94,24 +89,11 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
     Ok(frame_gray)
 }
 
-fn capture_and_save_debug_frame(
-    cap: &mut VideoCapture,
-    rect: Rect,
+fn save_debug_frame(
+    frame: &Mat,
     filename: &str,
-) ->Result<Mat, Box<dyn Error>> {
-    // Capture frame
-    let mut frame = capture_frame(cap)?;
-    
-    // Paint rectangle on debug output (magenta color)
-    imgproc::rectangle(
-        &mut frame,
-        rect,
-        core::Scalar::new(255.0, 0.0, 255.0, 0.0),
-        2,
-        imgproc::LINE_8,
-        0,
-    )?;
-    
+) -> Result<(), Box<dyn Error>> {
+
     // Convert RGB to BGR for proper JPEG saving
     let mut bgr_frame = Mat::default();
     imgproc::cvt_color(&frame, &mut bgr_frame, imgproc::COLOR_RGB2BGR, 0)?;
@@ -123,7 +105,7 @@ fn capture_and_save_debug_frame(
         Err(e) => eprintln!("Error saving frame: {}", e),
     }
     
-    Ok(frame)
+    Ok(())
 }
 
 fn capture_cleanup(mut cap: VideoCapture) -> Result<(), Box<dyn Error>> {
@@ -163,6 +145,7 @@ fn find_bobber(frame_gray: &Mat, templates: &Vec<Mat>) -> Result<Point, Box<dyn 
     // Apply Canny edge detection to the current frame (same as on templates)
     let mut frame_canny = Mat::default();
     imgproc::canny(&frame_gray, &mut frame_canny, 50 as f64, 100 as f64, 3, false)?;
+    save_debug_frame(&frame_canny, "canny_capture.jpg")?;
  
     // Perform template matching to find the bobber location
     let mut frame_lure_location = Mat::default();
@@ -234,10 +217,12 @@ fn wait_for_splash(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timeout = Duration::from_secs(29);
 
+    // Initalise HID gadgets
     let mut keyboard = HidKeyboard::new()?;
     let mut mouse = HidMouse::new()?;
+
+    // Place cursor to the top left so we initally know it position
     mouse.cursor_home()?;
-    sleep(Duration::from_millis(100));
   
     // Load the templates
     let templates = load_templates()?;
@@ -251,7 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         keyboard.key(0x1f, KeyAction::Tap).unwrap();
 
         // Wait for bobber beeing placed
-        sleep(Duration::from_millis(2000));
+        sleep(Duration::from_millis(2500));
 
         // Capture a frame
         let mut frame = capture_frame(&mut cap)?;
@@ -273,7 +258,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_millis(600));
 
         // DBUG CAPTURE OUTPUT
-        let _frame = capture_and_save_debug_frame(&mut cap, lure_location_rect, "captured_frame.jpg")?;
+        let mut debug_frame = capture_frame(&mut cap)?;
+        imgproc::rectangle(
+            &mut debug_frame,
+            lure_location_rect,
+            core::Scalar::new(255.0, 0.0, 255.0, 0.0),
+            2,
+            imgproc::LINE_8,
+            0,
+        )?;
+        save_debug_frame(&debug_frame, "captured_frame.jpg")?;
 
         // detect splash
         let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout)?;
@@ -285,11 +279,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // DBUG CAPTURE OUTPUT
-        let _frame = capture_and_save_debug_frame(&mut cap, lure_location_rect, "captured_frame.jpg")?;
+        // Paint rectangle on debug output (magenta color)
+        let mut debug_frame = capture_frame(&mut cap)?;
+        imgproc::rectangle(
+            &mut debug_frame,
+            lure_location_rect,
+            core::Scalar::new(255.0, 0.0, 255.0, 0.0),
+            2,
+            imgproc::LINE_8,
+            0,
+        )?;
+        save_debug_frame(&debug_frame, "captured_frame.jpg")?;
 
+        // Random delay before repeat
         random_delay(1000, 8000);
     }
-        
     // Clean up the video capture device
     capture_cleanup(cap)?;
   
