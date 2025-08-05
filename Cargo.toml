@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 opencv = "0.95.1"
+rand = "0.9.2"
