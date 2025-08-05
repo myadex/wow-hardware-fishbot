@@ -1,5 +1,5 @@
 use std::{env::current_dir, time::{Duration, Instant}};
-use opencv::{boxed_ref::BoxedRef, core::{Vector, Point, Rect, Mat, CV_8UC4}, imgproc, imgcodecs, Result};
+use opencv::{core::{Vector, Point, Rect, Mat, CV_8UC4}, imgproc, imgcodecs, Result};
 use opencv::videoio;
 use opencv::videoio::{VideoCapture, CAP_V4L2};
 use opencv::core::min_max_loc;
@@ -11,8 +11,22 @@ use std::fs;
 use std::path::Path;
 use std::error::Error;
 use std::thread::sleep;
+use rand::Rng;
 
 mod keyboard;
+mod mouse;
+
+use keyboard::{HidKeyboard, KeyAction};
+use mouse::{HidMouse, ButtonAction, Button};
+
+/// Introduces a random delay to make the bot behavior less predictable
+/// This might helps avoid detection by anti-cheat systems
+fn random_delay(min_delay: u64, max_delay: u64) {
+    let mut rng = rand::rng();
+    let delay_ms = rng.random_range(min_delay..=max_delay);
+
+    sleep(Duration::from_millis(delay_ms))
+}
 
 /// Initializes and configures the video capture device
 fn capture_init() -> Result<VideoCapture, Box<dyn Error>> {
@@ -38,7 +52,7 @@ fn capture_init() -> Result<VideoCapture, Box<dyn Error>> {
     cap.set(videoio::CAP_PROP_FOURCC, fourcc_rgb3 as f64)?;
    
     // Set buffer size (equivalent to --stream-mmap=4)
-    //cap.set(videoio::CAP_PROP_BUFFERSIZE, 4.0)?;
+    cap.set(videoio::CAP_PROP_BUFFERSIZE, 1.0)?;
    
     // Print actual resolution to verify settings
     let width = cap.get(videoio::CAP_PROP_FRAME_WIDTH)?;
@@ -55,8 +69,15 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
    
     // Capture a single frame
     //println!("Capturing frame...");
-    cap.read(&mut frame)?;
-   
+
+    // This is a little hack but we have to some how grab a few frames
+    // before we decode it. Otherwise we might get an old frame.
+    for _ in 0..5 { 
+        cap.grab()?;
+    }
+    // Now decode the latest frame we grabbed
+    cap.retrieve(&mut frame, 0)?;
+
     // Check if frame is empty
     if frame.empty() {
         eprintln!("Error: Captured frame is empty");
@@ -71,6 +92,38 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
     imgproc::cvt_color(&frame, &mut frame_gray, imgproc::COLOR_BGR2GRAY, 0)?;
     
     Ok(frame_gray)
+}
+
+fn capture_and_save_debug_frame(
+    cap: &mut VideoCapture,
+    rect: Rect,
+    filename: &str,
+) ->Result<Mat, Box<dyn Error>> {
+    // Capture frame
+    let mut frame = capture_frame(cap)?;
+    
+    // Paint rectangle on debug output (magenta color)
+    imgproc::rectangle(
+        &mut frame,
+        rect,
+        core::Scalar::new(255.0, 0.0, 255.0, 0.0),
+        2,
+        imgproc::LINE_8,
+        0,
+    )?;
+    
+    // Convert RGB to BGR for proper JPEG saving
+    let mut bgr_frame = Mat::default();
+    imgproc::cvt_color(&frame, &mut bgr_frame, imgproc::COLOR_RGB2BGR, 0)?;
+    
+    // Save the BGR frame as an image
+    let params = Vector::new();
+    match imgcodecs::imwrite(filename, &bgr_frame, &params) {
+        Ok(_) => println!("Frame saved as '{}'", filename),
+        Err(e) => eprintln!("Error saving frame: {}", e),
+    }
+    
+    Ok(frame)
 }
 
 fn capture_cleanup(mut cap: VideoCapture) -> Result<(), Box<dyn Error>> {
@@ -181,54 +234,64 @@ fn wait_for_splash(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timeout = Duration::from_secs(29);
 
+    let mut keyboard = HidKeyboard::new()?;
+    let mut mouse = HidMouse::new()?;
+    mouse.cursor_home()?;
+    sleep(Duration::from_millis(100));
+  
     // Load the templates
     let templates = load_templates()?;
 
     // Initialize the video capture device
     let mut cap = capture_init()?;
     
-    // Cast fishing
-    keyboard::press_key(0x1f).unwrap();
+    // Main fishing loop
+    loop {
+        // Cast fishing
+        keyboard.key(0x1f, KeyAction::Tap).unwrap();
 
-    // Wait for bobber beeing placed
-    sleep(Duration::from_millis(2000));
+        // Wait for bobber beeing placed
+        sleep(Duration::from_millis(2000));
 
-    // Capture a frame
-    let mut frame = capture_frame(&mut cap)?;
+        // Capture a frame
+        let mut frame = capture_frame(&mut cap)?;
 
-    // Detect bobber on caputre frame
-    let lure_location = find_bobber(&frame, &templates)?;
+        // Detect bobber on caputre frame
+        let lure_location = find_bobber(&frame, &templates)?;
 
-    // Create rectangle surrounding bobber
-    let lure_location_rect = Rect::new(lure_location.x, lure_location.y, templates[0].cols(), templates[0].rows());
+        // Create rectangle surrounding bobber
+        let lure_location_rect = Rect::new(lure_location.x, lure_location.y, templates[0].cols(), templates[0].rows());
 
-    // Move mouse to bobber location
-    // TODO
+        // Move mouse to bobber location
+        let bobber_x = lure_location_rect.x + lure_location_rect.width / 2;
+        let bobber_y = lure_location_rect.y + lure_location_rect.height / 2;
+        //mouse.cursor_home()?;
+        mouse.cursor_move(bobber_x, bobber_y)?;
+        //mouse.cursor_move(200, 200)?;
+        
+        // wait so the splash detector is not disturbed by the moving cursor
+        sleep(Duration::from_millis(600));
 
-    // wait so the splash detector is not disturbed by the moving cursor
-    sleep(Duration::from_millis(500));
+        // DBUG CAPTURE OUTPUT
+        let _frame = capture_and_save_debug_frame(&mut cap, lure_location_rect, "captured_frame.jpg")?;
 
-    // detect splash
-    let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout)?;
+        // detect splash
+        let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout)?;
+        
+        if splash_detected {
+            mouse.button(Button::Right, ButtonAction::Click)?;
+        } else {
+            println!("Timeout occured while waiting for splash")
+        }
 
-    // Paint rectangle on debug output
-    imgproc::rectangle(&mut frame, lure_location_rect, core::Scalar::new(255.0, 0.0, 255.0, 0.0), 2, imgproc::LINE_8, 0)?;
-   
-    let mut bgr_frame = Mat::default();
-    // Convert RGB to BGR for proper JPEG saving (since we set RGB3 format)
-    imgproc::cvt_color(&frame, &mut bgr_frame, imgproc::COLOR_RGB2BGR, 0)?;
-   
-    // Save the BGR frame as an image
-    let filename = "captured_frame.jpg";
-    let params = Vector::new();
-   
-    match imgcodecs::imwrite(filename, &bgr_frame, &params) {
-        Ok(_) => println!("Frame saved as '{}'", filename),
-        Err(e) => eprintln!("Error saving frame: {}", e),
+        // DBUG CAPTURE OUTPUT
+        let _frame = capture_and_save_debug_frame(&mut cap, lure_location_rect, "captured_frame.jpg")?;
+
+        random_delay(1000, 8000);
     }
-    
+        
     // Clean up the video capture device
     capture_cleanup(cap)?;
-   
+  
     Ok(())
 }
