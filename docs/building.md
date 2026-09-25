@@ -31,10 +31,11 @@ dependencies deliberately, update and commit `Cargo.lock` with the manifest chan
 
 The Linux build workflow runs on pushes and pull requests. Its logs record the
 Rust, Clang and native OpenCV versions. It compiles the application and test
-targets without starting the application or accessing a capture or HID device.
+targets and runs synthetic image-recognition tests without starting the hardware
+application or accessing a capture or HID device.
 
 Passing this workflow does not demonstrate image-detection accuracy or Pi
-compatibility. Image regression tests, formatting/lint checks and the Raspberry
+compatibility. Gameplay image regression tests, formatting/lint checks and the Raspberry
 Pi hardware acceptance run remain tracked in
 [issue #7](https://github.com/myadex/wow-hardware-fishbot/issues/7).
 

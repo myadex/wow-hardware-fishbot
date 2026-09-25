@@ -41,3 +41,6 @@ jobs:
 
       - name: Verify lockfile was not changed
         run: git diff --exit-code -- Cargo.lock
+
+      - name: Run synthetic image recognition tests
+        run: cargo test --locked --lib
