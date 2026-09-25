@@ -1,0 +1,43 @@
+name: Linux build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Ubuntu 24.04 build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential pkg-config clang libclang-dev libopencv-dev
+
+      - name: Show toolchain and OpenCV versions
+        run: |
+          rustup show
+          rustc --version
+          cargo --version
+          clang --version
+          pkg-config --modversion opencv4
+
+      - name: Build application and test targets with locked dependencies
+        run: cargo build --locked --all-targets
+
+      - name: Verify lockfile was not changed
+        run: git diff --exit-code -- Cargo.lock
