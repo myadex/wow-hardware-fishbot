@@ -1,13 +1,12 @@
-use std::{env::current_dir, time::{Duration, Instant}};
-use opencv::{core::{Vector, Point, Rect, Mat, CV_8UC4}, imgproc, imgcodecs, Result};
+use std::time::{Duration, Instant};
+use opencv::{core::{Vector, Rect, Mat}, imgproc, imgcodecs, Result};
 use opencv::videoio;
 use opencv::videoio::{VideoCapture, CAP_V4L2};
-use opencv::core::min_max_loc;
+use wow_hardware_fishbot::{load_templates, find_bobber};
 use opencv::core;
 use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
 
 
-use std::fs;
 use std::path::Path;
 use std::error::Error;
 use std::thread::sleep;
@@ -84,7 +83,7 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
 
     // Convert to grayscale for image processing
     let mut frame_gray = Mat::default();
-    imgproc::cvt_color(&frame, &mut frame_gray, imgproc::COLOR_BGR2GRAY, 0)?;
+    imgproc::cvt_color_def(&frame, &mut frame_gray, imgproc::COLOR_BGR2GRAY)?;
     
     Ok(frame_gray)
 }
@@ -96,7 +95,7 @@ fn save_debug_frame(
 
     // Convert RGB to BGR for proper JPEG saving
     let mut bgr_frame = Mat::default();
-    imgproc::cvt_color(&frame, &mut bgr_frame, imgproc::COLOR_RGB2BGR, 0)?;
+    imgproc::cvt_color_def(&frame, &mut bgr_frame, imgproc::COLOR_RGB2BGR)?;
     
     // Save the BGR frame as an image
     let params = Vector::new();
@@ -112,51 +111,6 @@ fn capture_cleanup(mut cap: VideoCapture) -> Result<(), Box<dyn Error>> {
     cap.release()?;
     println!("Video device released.");
     Ok(())
-}
-
-/// Loads fishing bobber template images from the ./template directory
-/// These templates are used for computer vision to detect the fishing bobber on screen
-fn load_templates() -> Result<Vec<Mat>, Box<dyn Error>> {
-    let mut templates: Vec<Mat> = Vec::new();
-
-    let path = Path::new("./templates");
-    for entry in fs::read_dir(path)?{
-            let entry = entry?;
-            println!("{:?}", entry.path().display());
-
-            // Load the template image in color
-            let template = imgcodecs::imread(&entry.path().display().to_string(), 1 as i32)?;
-
-            // Convert to grayscale for better template matching
-            let mut template_gray = Mat::default();
-            imgproc::cvt_color(&template, &mut template_gray, imgproc::COLOR_BGR2GRAY, 0)?;
-
-            // Apply Canny edge detection to focus on edges rather than colors
-            // This makes template matching more robust to lighting changes
-            let mut template_canny = Mat::default();
-            imgproc::canny(&template_gray, &mut template_canny, 50 as f64, 100 as f64, 3, false)?;
-            templates.push(template_canny);
-    }
-    Ok(templates)
-}
-
-/// Finds the fishing bobber in the current frame using template matching
-fn find_bobber(frame_gray: &Mat, templates: &Vec<Mat>) -> Result<Point, Box<dyn Error>> {
-    // Apply Canny edge detection to the current frame (same as on templates)
-    let mut frame_canny = Mat::default();
-    imgproc::canny(&frame_gray, &mut frame_canny, 50 as f64, 100 as f64, 3, false)?;
-    save_debug_frame(&frame_canny, "canny_capture.jpg")?;
- 
-    // Perform template matching to find the bobber location
-    let mut frame_lure_location = Mat::default();
-    imgproc::match_template(&frame_canny, &templates[0], &mut frame_lure_location, imgproc::TM_CCOEFF_NORMED, &Mat::default())?;
-
-    // Find the location with the highest match confidence
-    let mut max_val = 0.0;
-    let mut lure_location = Point::new(0, 0);
-    min_max_loc(&frame_lure_location, None, Some(&mut max_val), None, Some(&mut lure_location), &Mat::default())?;
-    println!("Bobber dectetion: max_val = {:?}  lure_location = {:?} ", max_val, lure_location);
-    Ok(lure_location)
 }
 
 /// Detects if a fish has "splashed" by comparing two consecutive frames
@@ -225,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mouse.cursor_home()?;
   
     // Load the templates
-    let templates = load_templates()?;
+    let templates = load_templates(Path::new("./templates"))?;
 
     // Initialize the video capture device
     let mut cap = capture_init()?;
@@ -239,13 +193,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_millis(2500));
 
         // Capture a frame
-        let mut frame = capture_frame(&mut cap)?;
+        let frame = capture_frame(&mut cap)?;
 
         // Detect bobber on caputre frame
-        let lure_location = find_bobber(&frame, &templates)?;
+        let Some(detection) = find_bobber(&frame, &templates, 0.80)? else {
+            println!("No reliable bobber match; skipping mouse interaction");
+            random_delay(1000, 2000);
+            continue;
+        };
 
         // Create rectangle surrounding bobber
-        let lure_location_rect = Rect::new(lure_location.x, lure_location.y, templates[0].cols(), templates[0].rows());
+        let lure_location_rect = detection.rect;
 
         // Move mouse to bobber location
         let bobber_x = lure_location_rect.x + lure_location_rect.width / 2;

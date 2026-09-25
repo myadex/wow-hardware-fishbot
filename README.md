@@ -6,6 +6,9 @@ Find out more about this project on my blog: https://zuernerd.github.io/blog/202
 
 ## Development
 
+For native Windows screenshot testing, see [the Windows guide](docs/windows.md).
+The `image-test` command uses the bot's detection code without capture or HID devices.
+
 See [the Linux build guide](docs/building.md) for dependencies and building without
 capture hardware. GitHub Actions compiles the project on Ubuntu 24.04; hardware
 and image-recognition validation are separate steps.
