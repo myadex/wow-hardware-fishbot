@@ -1,14 +1,15 @@
 # Local bite-video review
 
 Two user recordings under ignored `samples/` show a visible bobber and fishing
-line. The user confirmed a bite at about 8 seconds in `Aufzeichnung 2026-09-25
-165123.mp4` and at 17.6–18.0 seconds in `Aufzeichnung 2026-09-25 165221.mp4`.
+line. The user confirmed two bites in `Aufzeichnung 2026-09-25 165123.mp4`, at
+about 8 seconds and 35–37 seconds, and one at 17.6–18.0 seconds in
+`Aufzeichnung 2026-09-25 165221.mp4`.
 The clips are cropped to 1012×744 and 948×618 at 30 fps, respectively; they
 are not full-resolution HDMI capture from the Pi.
 
-At both confirmed bites, the bobber changes and a short circular ripple
-expands around it. The first event is clearest around 8.0–8.4 seconds; the
-second around 17.57–18.0 seconds. One-second sampling hides most of this motion,
+At all three confirmed bites, the bobber changes and a short circular ripple
+expands around it. The events are clearest around 8.0–8.4, 36.33–36.8, and
+17.57–18.0 seconds, respectively. One-second sampling hides most of this motion,
 so `video-sample` can extract frames every 0.1 seconds for visual review.
 
 `video-motion` measures consecutive grayscale frames in a manually placed
@@ -23,10 +24,21 @@ before either confirmed event. On the second recording, brief ordinary motion
 at 10.833 seconds reaches 77/729, close to the new limit; different capture
 quality may need retuning.
 
+For the later bite in the first recording, the camera has moved and the bobber
+is near (430, 251). A separate 27×27 rectangle at (418, 238) first triggers at
+36.333 seconds and peaks at 155/729 pixels at 36.400 seconds. From 13.0 to
+36.3 seconds, after the camera settles and before this bite, the maximum is
+71/729, below the 88-pixel limit. The old >50 count peaks at only 10 during
+this bite. Running that later rectangle over the *entire* clip also reports a
+candidate at 11.433 seconds because the camera is moving through its future
+position; it is not a valid fixed-bobber replay before the later cast.
+
 The bot now reads one frame per monitoring step instead of discarding five.
 The 50 ms pause remains. A 30-fps replay sampled every third frame still has a
-candidate at every possible sampling phase in both clips; sampling every fifth
-frame can miss the shorter first event. This is a timing argument based on these
+candidate at every possible sampling phase for the first two reviewed events;
+sampling every fifth frame can miss the shorter first event. The 36-second bite
+has candidates on frames 1090, 1092, 1093, and 1096, so one of three possible
+every-third-frame phases would miss it. This is a timing argument based on these
 recordings, not a hardware timing measurement.
 
 For reproducible local diagnostics (the recordings and CSV results stay ignored):
@@ -34,6 +46,7 @@ For reproducible local diagnostics (the recordings and CSV results stay ignored)
 ```powershell
 cargo run --locked --release --bin video-sample -- "samples/Aufzeichnung 2026-09-25 165221.mp4" output/video-2-event 0.1 17 19.5
 cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09-25 165123.mp4" output/video-1-motion-new.csv 290 241 27 27
+cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09-25 165123.mp4" output/video-1-second-motion.csv 418 238 27 27
 cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09-25 165221.mp4" output/video-2-motion-new.csv 281 323 27 27
 ```
 
@@ -46,6 +59,6 @@ scores 0.796–0.887; the six labeled no-bobber screenshots scored below 0.721.
 That probe is offline and has not replaced the bot's locator. Its thresholds
 and templates need validation on full-resolution Pi capture before rollout.
 
-These two confirmed bites support the new motion thresholds, but do not measure
+These three confirmed bites support the new motion thresholds, but do not measure
 false-positive rate across other water scenes or actual keyboard latency on the
 Pi. The bot still sends F8 for a bite; that HID behavior needs the hardware run.
