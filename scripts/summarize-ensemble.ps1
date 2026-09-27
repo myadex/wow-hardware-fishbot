@@ -24,7 +24,7 @@ $predictions = @(foreach ($group in ($rows | Where-Object { $_.split -notin @('t
     }
     $accepted = @(foreach ($row in $group.Group) {
         if (!$thresholds.ContainsKey($row.mode)) { throw "Unexpected mode: $($row.mode)" }
-        if ($row.template -eq $row.file) { throw "Self-template leakage: $($row.file)" }
+        if ($row.template -eq $row.file -or $row.template_source -eq $row.file) { throw "Self-template leakage: $($row.file)" }
         $score = [double]::Parse($row.score, $culture)
         if ($score -ge $thresholds[$row.mode]) {
             [PSCustomObject]@{ Row=$row; Margin=$score-$thresholds[$row.mode] }

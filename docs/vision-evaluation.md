@@ -171,3 +171,36 @@ positives, with **0/6** negative-frame false alarms. 171341 is recovered by
 correct. Added thresholds are 0.768771 (color-trio), 0.884498 (red-trio) and
 0.798053 (hybrid-trio). This is not an independent test: these frames informed
 development. Eight automated tests pass on native Windows/OpenCV.
+
+## Additional cropped templates
+
+The optional fourth argument loads extra crops alongside the existing views:
+
+```powershell
+cargo run --locked --release --bin vision-eval -- samples/focus-expanded.csv output/blob6-new.csv --ensemble-colors samples/extra-templates.csv
+.\scripts\summarize-ensemble.ps1 -CsvPath output/blob6-new.csv -OutputPath output/blob6-new.json -IncludeTriColor
+```
+
+The extra-template CSV uses paths relative to its own directory:
+
+```csv
+file,source
+blob6.png,WoWScrnShot_092526_171431.jpg
+```
+
+Add one row per crop. Every source must name a screenshot in the evaluation
+manifest. Each crop is compared at 80%, 100% and 120% size using all selected
+channels. The originating screenshot is always excluded for that crop, including
+all scales and channels. Output records both `template` and `template_source`;
+the summary also checks source exclusion. Extra templates are opt-in and do not
+change the original bank or the hardware detector. Thresholds are recalibrated
+on the same calibration negatives because extra views may also increase
+background similarity. Image files and the local configuration remain ignored.
+
+With the local `blob6.png` sourced from 171431, the labeled development set
+remains at **11/13** correctly localized positives and **0/6** false alarms.
+Neither 171419 nor 171431 is recovered. The extra view is never selected as
+the best prediction on the other labeled frames; its best raw-channel candidate
+is on negative frame 151803, below that channel's calibrated threshold. All
+six thresholds stay unchanged. This result supports keeping the crop optional
+until it can be checked on new, independently labeled screenshots.

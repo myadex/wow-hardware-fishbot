@@ -197,8 +197,8 @@ fn representation(image: &Mat, mode: &str) -> VisionResult<Mat> {
 
 fn main() -> VisionResult<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if !(2..=3).contains(&args.len())
-        || (args.len() == 3
+    if !(2..=4).contains(&args.len())
+        || (args.len() >= 3
             && !matches!(
                 args[2].as_str(),
                 "--diagnose"
@@ -211,11 +211,11 @@ fn main() -> VisionResult<()> {
             ))
     {
         return Err(
-            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth|--focus|--foreground|--hybrid|--ensemble|--ensemble-colors]; fixed experiment for 1920x1080 images"
+            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth|--focus|--foreground|--hybrid|--ensemble|--ensemble-colors] [EXTRA_TEMPLATES.csv]; fixed experiment for 1920x1080 images"
                 .into(),
         );
     }
-    let diagnose = args.len() == 3;
+    let diagnose = args.len() >= 3;
     let tri_color = args.get(2).is_some_and(|a| a == "--ensemble-colors");
     let ensemble = tri_color || args.get(2).is_some_and(|a| a == "--ensemble");
     let hybrid = args.get(2).is_some_and(|a| a == "--hybrid");
@@ -283,16 +283,57 @@ fn main() -> VisionResult<()> {
             image,
         ));
     }
-    let mut templates = Vec::new();
+    let mut sources = Vec::new();
     for (name, split, _, rect, image) in &rows {
         if split != "template" && !(focus && split == "evaluation-template") {
             continue;
         }
         let crop = Mat::roi(image, *rect)?.try_clone()?;
+        sources.push((name.clone(), name.clone(), crop));
+    }
+    if let Some(path) = args.get(3) {
+        let path = Path::new(path);
+        let directory = path.parent().ok_or("Missing extra-template directory")?;
+        let text = fs::read_to_string(path)?;
+        let mut lines = text.lines();
+        if lines.next() != Some("file,source") {
+            return Err("Extra templates require CSV header file,source".into());
+        }
+        for line in lines {
+            let fields: Vec<_> = line.split(',').collect();
+            if fields.len() != 2 || fields.iter().any(|s| s.is_empty()) {
+                return Err("Extra template requires file and originating screenshot".into());
+            }
+            if !rows.iter().any(|r| r.0 == fields[1]) {
+                return Err(format!("Unknown template source: {}", fields[1]).into());
+            }
+            if sources.iter().any(|s| s.0 == fields[0]) {
+                return Err(format!("Duplicate template name: {}", fields[0]).into());
+            }
+            let crop = imgcodecs::imread(
+                directory
+                    .join(fields[0])
+                    .to_str()
+                    .ok_or("Invalid template path")?,
+                imgcodecs::IMREAD_COLOR,
+            )?;
+            if crop.empty()
+                || crop.cols() < 2
+                || crop.rows() < 2
+                || crop.cols() > 1250
+                || crop.rows() > 400
+            {
+                return Err(format!("Invalid extra template dimensions: {}", fields[0]).into());
+            }
+            sources.push((fields[0].to_owned(), fields[1].to_owned(), crop));
+        }
+    }
+    let mut templates = Vec::new();
+    for (name, source, crop) in &sources {
         for scale in [0.8, 1.0, 1.2] {
             let mut resized = Mat::default();
             imgproc::resize(
-                &crop,
+                crop,
                 &mut resized,
                 Size::default(),
                 scale,
@@ -322,7 +363,15 @@ fn main() -> VisionResult<()> {
                 } else {
                     None
                 };
-                templates.push((name.clone(), mode, scale, template, mask, red_template));
+                templates.push((
+                    name.clone(),
+                    source.clone(),
+                    mode,
+                    scale,
+                    template,
+                    mask,
+                    red_template,
+                ));
             }
         }
     }
@@ -335,7 +384,7 @@ fn main() -> VisionResult<()> {
         .open(&args[1])?;
     writeln!(
         output,
-        "file,split,present,mode,region,score,x,y,width,height,template,scale,center_in_target,iou,target_score"
+        "file,split,present,mode,region,score,x,y,width,height,template,scale,center_in_target,iou,target_score,template_source"
     )?;
     for (name, split, present, target, image) in &rows {
         let colors = if tri_color {
@@ -352,16 +401,26 @@ fn main() -> VisionResult<()> {
             };
             for &(region_name, region) in &regions {
                 let search = Mat::roi(&frame, region)?;
-                let mut best = (-2.0, Rect::default(), String::new(), 0.0);
+                let mut best = (-2.0, Rect::default(), String::new(), 0.0, String::new());
                 let mut target_score = -2.0_f64;
-                for (template_name, template_mode, scale, template, mask, red_template) in
-                    &templates
+                for (
+                    template_name,
+                    template_source,
+                    template_mode,
+                    scale,
+                    template,
+                    mask,
+                    red_template,
+                ) in &templates
                 {
                     if *template_mode != mode {
                         continue;
                     }
+                    if template.cols() > search.cols() || template.rows() > search.rows() {
+                        continue;
+                    }
                     // Never count a source screenshot matching its own crop.
-                    if focus && template_name == name {
+                    if (focus || args.len() == 4) && template_source == name {
                         continue;
                     }
                     let mut scores = Mat::default();
@@ -453,6 +512,7 @@ fn main() -> VisionResult<()> {
                             ),
                             template_name.clone(),
                             *scale,
+                            template_source.clone(),
                         );
                     }
                 }
@@ -474,8 +534,8 @@ fn main() -> VisionResult<()> {
                 };
                 writeln!(
                     output,
-                    "{name},{split},{present},{mode},{region_name},{:.6},{},{},{},{},{},{},{hit},{iou:.4},{target_score:.6}",
-                    best.0, r.x, r.y, r.width, r.height, best.2, best.3
+                    "{name},{split},{present},{mode},{region_name},{:.6},{},{},{},{},{},{},{hit},{iou:.4},{target_score:.6},{}",
+                    best.0, r.x, r.y, r.width, r.height, best.2, best.3, best.4
                 )?;
             }
         }
