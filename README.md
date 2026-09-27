@@ -9,9 +9,10 @@ Find out more about this project on my blog: https://zuernerd.github.io/blog/202
 For native Windows screenshot testing, see [the Windows guide](docs/windows.md).
 The `image-test` command uses the bot's color-first, edge-fallback detection code
 without capture or HID devices. The bundled color crops are in `color-templates/`.
-The Pi bot casts with key `2` and taps **F8** when a bite is detected. Bind F8
-to your bite action in the game, or set `FISHBOT_BITE_KEY` to another key
-(A-Z, 0-9, F1-F12). No mouse HID device is needed.
+The Pi bot casts with key `2`. When it detects a bite, it moves the USB HID
+mouse to the bobber and right-clicks. Both keyboard (`/dev/hidg0`) and mouse
+(`/dev/hidg1`) gadget functions are required. The pointer is parked at the
+top-left before each cast so it does not cover the bobber during monitoring.
 
 See [the Linux build guide](docs/building.md) for dependencies and building without
 capture hardware. GitHub Actions compiles the project on Ubuntu 24.04; hardware

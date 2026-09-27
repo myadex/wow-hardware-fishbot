@@ -60,5 +60,6 @@ camera positions in the first recording, and rejects two reviewed frames before
 the bobber appears in the second. See [the locator review](color-locator.md).
 
 These three confirmed bites support the motion thresholds, but do not measure
-false-positive rate across other water scenes or actual keyboard latency on the
-Pi. The bot still sends F8 for a bite; that HID behavior needs the hardware run.
+false-positive rate across other water scenes or actual mouse HID latency on the
+Pi. The bot now moves to the bobber and right-clicks at a bite; that physical
+pointer position and click need the hardware run.

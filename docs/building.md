@@ -39,9 +39,17 @@ compatibility. Gameplay image regression tests, formatting/lint checks and the R
 Pi hardware acceptance run remain tracked in
 [issue #7](https://github.com/myadex/wow-hardware-fishbot/issues/7).
 
-The current application expects Linux V4L2 and a keyboard HID gadget at
-`/dev/hidg0` at runtime. It does not require a mouse HID gadget.
-Use the real Pi to validate HDMI input, USB reports, latency and power delivery.
+The current application expects Linux V4L2 and both gadget functions at
+runtime: keyboard `/dev/hidg0` and relative mouse `/dev/hidg1`. The supplied
+`scripts/start-hid-gadget.sh` creates both functions. Use the real Pi to
+validate HDMI input, USB reports, pointer position, latency and power delivery.
+On a Pi 5, USB gadget/device mode is available on its **USB-C power port**, not
+the USB-A ports. Raspberry Pi's [OTG guide](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-009276-WP-1-Using%20OTG%20mode%20on%20Raspberry%20Pi%20SBCs)
+specifies `dtoverlay=dwc2,dr_mode=peripheral` in `/boot/firmware/config.txt`.
+That USB-C port must connect to the game PC for the keyboard/mouse gadget.
+The kit's 27 W USB-C power supply therefore cannot occupy that same port at
+the same time; arrange adequate power separately before relying on the gadget.
+PC USB power alone may be insufficient for a Pi 5 with an NVMe SSD and cooler.
 An x86-64 CI executable cannot be run on the ARM64 Raspberry Pi; build on the Pi
 for the hardware run. Raspberry Pi OS and its native dependency versions still
 need to be validated on the actual device.

@@ -4,7 +4,7 @@ use opencv::videoio;
 use opencv::videoio::{CAP_V4L2, VideoCapture};
 use opencv::{
     Result,
-    core::{Mat, Rect, Vector},
+    core::{Mat, Rect, Size, Vector},
     imgcodecs, imgproc,
 };
 use std::time::{Duration, Instant};
@@ -16,8 +16,10 @@ use std::path::Path;
 use std::thread::sleep;
 
 mod keyboard;
+mod mouse;
 
 use keyboard::HidKeyboard;
+use mouse::{HidMouse, map_bobber};
 
 /// Introduces a random delay to make the bot behavior less predictable
 /// This might helps avoid detection by anti-cheat systems
@@ -120,6 +122,24 @@ fn bite_monitor_rect(rect: Rect) -> Rect {
         Rect::new(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6)
     } else {
         rect
+    }
+}
+
+fn desktop_size_override() -> Result<Option<Size>, Box<dyn Error>> {
+    match (
+        std::env::var("FISHBOT_SCREEN_WIDTH").ok(),
+        std::env::var("FISHBOT_SCREEN_HEIGHT").ok(),
+    ) {
+        (None, None) => Ok(None),
+        (Some(width), Some(height)) => {
+            let width: i32 = width.parse()?;
+            let height: i32 = height.parse()?;
+            if width <= 0 || height <= 0 {
+                return Err("Screen dimensions must be positive".into());
+            }
+            Ok(Some(Size::new(width, height)))
+        }
+        _ => Err("Set both FISHBOT_SCREEN_WIDTH and FISHBOT_SCREEN_HEIGHT".into()),
     }
 }
 
@@ -226,11 +246,11 @@ fn wait_for_splash(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timeout = Duration::from_secs(29);
-    let bite_key_name = std::env::var("FISHBOT_BITE_KEY").unwrap_or_else(|_| "F8".to_owned());
-    let bite_key = keyboard::parse_key_name(&bite_key_name)?;
+    let screen_override = desktop_size_override()?;
 
-    // Initialize the keyboard HID gadget.
+    // Initialize the keyboard and relative-mouse HID gadgets.
     let mut keyboard = HidKeyboard::new()?;
+    let mut mouse = HidMouse::new()?;
 
     // Load both video-derived color views and the previous edge templates.
     let templates = load_templates(Path::new("./templates"))?;
@@ -238,9 +258,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the video capture device
     let mut cap = capture_init()?;
+    let capture_size = Size::new(
+        cap.get(videoio::CAP_PROP_FRAME_WIDTH)? as i32,
+        cap.get(videoio::CAP_PROP_FRAME_HEIGHT)? as i32,
+    );
+    if capture_size.width <= 0 || capture_size.height <= 0 {
+        return Err("Capture dimensions are unavailable".into());
+    }
+    let desktop_size = screen_override.unwrap_or(capture_size);
+    println!(
+        "Mouse coordinate mapping: capture {}x{} -> desktop {}x{}",
+        capture_size.width, capture_size.height, desktop_size.width, desktop_size.height
+    );
 
     // Main fishing loop
     loop {
+        // Park the cursor outside the search area before casting. This keeps
+        // its image from covering the bobber during bite monitoring.
+        mouse.home(desktop_size)?;
+
         // Cast fishing
         keyboard.tap(0x1f)?;
 
@@ -290,7 +326,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
 
         if splash_detected {
-            keyboard.tap(bite_key)?;
+            let target = map_bobber(detection.rect, frame.size()?, desktop_size)?;
+            println!(
+                "Moving to bobber at ({}, {}) and right-clicking",
+                target.x, target.y
+            );
+            mouse.move_from_home(target)?;
+            mouse.right_click()?;
         } else {
             println!("Timeout occured while waiting for splash")
         }

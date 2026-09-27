@@ -35,6 +35,12 @@ bites at 8.000, 36.333 and 17.567 seconds. Camera movement between casts is
 not modeled as a fixed bobber location. Actual Pi frame timing and the full
 HDMI capture format are still untested.
 
+For the bite action, the relative mouse is parked at the top-left before each
+cast so it does not cover the bobber while motion is measured. On a detected
+bite, the center of the matched rectangle is scaled to the configured game
+desktop size, then the cursor moves there and sends a right-click. This physical
+positioning is not validated by offline video playback.
+
 On the configured Windows machine, the same production path can be checked
 without capture hardware or HID input:
 

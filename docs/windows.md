@@ -56,13 +56,18 @@ the combined detector localizes 8/9 other positive screenshots and rejects all
 rejects two video frames before the bobber appears. These frames are from the
 same inspected sessions, so they do not establish independent accuracy.
 
-The offline command and Pi bot share the same detection code. The bot uses only
-the keyboard HID gadget at `/dev/hidg0`: key `2` casts, and **F8** is tapped when
-a bite is detected. Bind F8 in the game to the action you want on a bite. To
-choose another bite key, set `FISHBOT_BITE_KEY` before starting the bot; accepted
-names are A-Z, 0-9 and F1-F12. An invalid value stops the bot at startup.
-The bot does not open `/dev/hidg1` or send mouse movement or clicks. If no
-bobber is found, it waits briefly and casts again.
+The offline command and Pi bot share the same detection code. On the Pi, key
+`2` casts through `/dev/hidg0`. The cursor is parked at the top-left before a
+cast; on a detected bite the bot moves it to the bobber and right-clicks through
+the relative-mouse gadget `/dev/hidg1`. If no bobber is found, it waits briefly
+and casts again. The old F8 bite action is no longer used.
+
+By default the captured image and game desktop are assumed to have the same
+dimensions and no cropping or letterboxing. If the capture card scales the
+desktop, set both `FISHBOT_SCREEN_WIDTH` and `FISHBOT_SCREEN_HEIGHT` to the
+game desktop resolution. The coordinate mapping and relative mouse movement
+need to be checked on the Pi with the host's pointer speed/acceleration settings;
+the Windows image tests cannot validate physical pointer position.
 
 The screenshot tests do not validate bite detection over time. Two local
 recordings were reviewed in [the bite-video report](bite-video-review.md),
