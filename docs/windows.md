@@ -53,10 +53,17 @@ edge detector found it in that screenshot at `(954, 402, 28, 25)` with score
 with the whole template directory. This checks that the saved crop works on its
 own screenshot; it does not establish how reliably it will find other bobbers.
 
-The offline command and Pi bot share the same detection code. The bot now skips
-mouse interaction when no match passes the threshold. The screenshot tests do
-not validate splash detection over time, capture latency, mouse calibration,
-or recognition accuracy on actual gameplay. Those require recordings or hardware.
+The offline command and Pi bot share the same detection code. The bot uses only
+the keyboard HID gadget at `/dev/hidg0`: key `2` casts, and **F8** is tapped when
+a bite is detected. Bind F8 in the game to the action you want on a bite. To
+choose another bite key, set `FISHBOT_BITE_KEY` before starting the bot; accepted
+names are A-Z, 0-9 and F1-F12. An invalid value stops the bot at startup.
+The bot does not open `/dev/hidg1` or send mouse movement or clicks. If no
+bobber is found, it waits briefly and casts again.
+
+The screenshot tests do not validate bite detection over time, capture latency,
+keyboard binding in the game, or recognition accuracy on actual gameplay. Those
+require recordings or hardware.
 The synthetic Rust tests verify basic matching behavior, not real-world accuracy.
 
 Local smoke checks with the supplied `bobber1.png` gave correlation 1.0 for the

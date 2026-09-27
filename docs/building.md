@@ -39,7 +39,8 @@ compatibility. Gameplay image regression tests, formatting/lint checks and the R
 Pi hardware acceptance run remain tracked in
 [issue #7](https://github.com/myadex/wow-hardware-fishbot/issues/7).
 
-The current application expects Linux V4L2 and `/dev/hidg*` devices at runtime.
+The current application expects Linux V4L2 and a keyboard HID gadget at
+`/dev/hidg0` at runtime. It does not require a mouse HID gadget.
 Use the real Pi to validate HDMI input, USB reports, latency and power delivery.
 An x86-64 CI executable cannot be run on the ARM64 Raspberry Pi; build on the Pi
 for the hardware run. Raspberry Pi OS and its native dependency versions still
