@@ -46,6 +46,13 @@ and without a bobber, at different water backgrounds and lighting conditions.
 Existing output files are never overwritten; choose a new name for each run.
 Exit codes are 0 for a match, 2 for no match, and 1 for an input/runtime error.
 
+`templates/blob6.png` is a crop from screenshot 171431 and is loaded by both
+`image-test` and the bot with the other templates. At threshold 0.80, the shared
+edge detector found it in that screenshot at `(954, 402, 28, 25)` with score
+0.8122. The six labeled screenshots without a bobber were rejected when tested
+with the whole template directory. This checks that the saved crop works on its
+own screenshot; it does not establish how reliably it will find other bobbers.
+
 The offline command and Pi bot share the same detection code. The bot now skips
 mouse interaction when no match passes the threshold. The screenshot tests do
 not validate splash detection over time, capture latency, mouse calibration,

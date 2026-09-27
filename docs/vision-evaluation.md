@@ -204,3 +204,8 @@ the best prediction on the other labeled frames; its best raw-channel candidate
 is on negative frame 151803, below that channel's calibrated threshold. All
 six thresholds stay unchanged. This result supports keeping the crop optional
 until it can be checked on new, independently labeled screenshots.
+
+This exclusion applies to evaluation only. The shared bot/`image-test` edge
+detector loads `templates/blob6.png` as a regular production template and does
+match its own 171431 source screenshot at threshold 0.80. Its source exclusion
+in `vision-eval` remains necessary when judging generalization to other frames.
