@@ -23,7 +23,8 @@ For the September 25 sample set, the user confirmed all eight positive boxes
 and six negative frames. Template images are 151704, 151815, 151820; calibration
 negatives are 151750, 151800, 151803. Evaluation uses the other five positives
 and three negatives. Proposed threshold per method/region is its highest
-calibration-negative score plus 0.05, capped at 1.0. A correct localization
+calibration-negative score plus 0.05. A threshold above 1.0 means that channel
+cannot safely accept any normalized correlation. A correct localization
 requires the predicted center inside the confirmed box and IoU at least 0.30.
 Accepted detections outside a positive target count as wrong localizations,
 not successful detections. CSV records raw scores, positions, centers, and IoU;
@@ -62,3 +63,69 @@ The former evaluation rows are now development data: this result was used to
 select smoothing. It must not be reported as independent test accuracy. The
 remaining score margin is small and requires testing on new footage. No hardware
 bot behavior or default detection threshold is changed by this experiment.
+
+## Foreground and additional views (September 27)
+
+The eleven 17xx screenshots contain eight positives and three confirmed negatives
+(171355, 171359, 171403). The previous frozen color method found 3/8 positives
+and rejected all three negatives. Three missed positives preferred background
+locations; two were correctly localized but below threshold. Reference boxes are
+annotations, not predictions. The user confirmed the reference positions for the
+three background-confusion cases.
+
+New experimental options:
+
+- `--focus`: compare smoothed color with a Gaussian spatial mask emphasizing the
+  template center. This is weighting, not semantic foreground segmentation.
+- `--foreground`: use positive `(R-G)/(R+G+1)` followed by 5x5 Gaussian smoothing.
+  Reject search patches with feature standard deviation below 0.005: almost-flat
+  patches can otherwise produce numerically misleading perfect correlations.
+- `--hybrid`: average smoothed color and foreground correlations at the **same
+  position for the same template**. Invalid/flat foreground patches are rejected.
+- `--ensemble`: emit color, foreground, and hybrid scores for the summary below.
+
+These options accept `evaluation-template` rows as additional template sources,
+but exclude **all templates from the current source file**, including resized
+variants, when evaluating it. Thus a source frame cannot win by matching its own
+crop. Ordinary `template` rows are still excluded from reported success counts.
+For this experiment the additional views are 171341, 171345, 171419. The three
+original template sources, scale factors, search rectangle and calibration-negative
+images remain unchanged. The 16xx images lack confirmed labels and are not scored.
+
+```powershell
+cargo run --locked --release --bin vision-eval -- samples/focus-expanded.csv output/ensemble-new.csv --ensemble
+.\scripts\summarize-ensemble.ps1 -CsvPath output/ensemble-new.csv -OutputPath output/ensemble-new-summary.json
+```
+
+The summary calibrates each channel from the same three old negative images
+(max score + 0.05). Any channel above its threshold can propose a detection;
+the accepted candidate with the largest score-minus-threshold margin wins,
+with ties ordered by mode name. Selection never uses evaluation presence labels,
+reference boxes, or the diagnostic score at the reference box.
+
+Development-set results, excluding the original template images and three
+calibration negatives:
+
+| Method | Correct / 13 positives | False alarms / 6 negatives |
+|---|---:|---:|
+| Original color, original views | 8 | 0 |
+| Color, additional views with own-source exclusion | 8 | 0 |
+| Center weighting | 2 | 0 |
+| Foreground alone | 2 | 0 |
+| Hybrid alone | 7 | 0 |
+| Three-channel ensemble | 10 | 0 |
+
+The ensemble recovers 171345 and 171459, raising the 17xx result from 3/8 to 5/8.
+171341, 171419 and 171431 are still missed. All five evaluated 15xx positives
+remain detected. Calibrated thresholds are 0.780338 (color), 0.926487 (foreground),
+and 0.827874 (hybrid). Center weighting was rejected as an improvement.
+
+This is development evidence only: the added views and ensemble were selected
+after inspecting these frames. Own-source exclusion prevents trivial self-matches,
+but does not create an independent test or remove correlation between adjacent
+frames. The hardware bot and `image-test` still use the earlier detector.
+
+Validation includes the two numeric regression tests in `vision-eval`, the four
+library tests, all 25 frames/75 prediction rows, and a check that hiding evaluation
+ground truth leaves all selected predictions unchanged. Screenshots, labels, raw
+scores and result pages remain local in ignored directories.

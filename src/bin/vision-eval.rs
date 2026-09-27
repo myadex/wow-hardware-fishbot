@@ -7,13 +7,142 @@ use opencv::{
 use std::{fs, io::Write, path::Path};
 use wow_hardware_fishbot::VisionResult;
 
+/// Soft spatial weighting, not a learned foreground segmentation.
+fn center_mask(size: Size) -> VisionResult<Mat> {
+    let mut mask = Mat::new_rows_cols_with_default(
+        size.height,
+        size.width,
+        core::CV_32FC1,
+        core::Scalar::all(0.0),
+    )?;
+    for y in 0..size.height {
+        for x in 0..size.width {
+            let dx = (x as f64 - (size.width - 1) as f64 / 2.0) / (size.width as f64 * 0.28);
+            let dy = (y as f64 - (size.height - 1) as f64 / 2.0) / (size.height as f64 * 0.28);
+            *mask.at_2d_mut::<f32>(y, x)? = (-0.5 * (dx * dx + dy * dy)).exp() as f32;
+        }
+    }
+    Ok(mask)
+}
+
+fn sanitize_scores(scores: &mut Mat) -> VisionResult<()> {
+    // Masked normalized correlation can divide by zero on constant patches.
+    for value in scores.data_typed_mut::<f32>()? {
+        if !value.is_finite() {
+            *value = -2.0;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn near_constant_feature_patch_cannot_be_a_perfect_match() -> VisionResult<()> {
+        let mut image =
+            Mat::new_rows_cols_with_default(12, 12, core::CV_32FC1, core::Scalar::all(0.1))?;
+        *image.at_2d_mut::<f32>(2, 2)? = 0.10001;
+        *image.at_2d_mut::<f32>(9, 9)? = 0.9;
+        let mut scores =
+            Mat::new_rows_cols_with_default(9, 9, core::CV_32FC1, core::Scalar::all(1.0))?;
+        reject_flat_patches(&mut scores, &image, Size::new(4, 4))?;
+        assert_eq!(*scores.at_2d::<f32>(0, 0)?, -2.0);
+        assert_eq!(*scores.at_2d::<f32>(8, 8)?, 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn undefined_masked_correlations_do_not_hide_finite_candidates() -> VisionResult<()> {
+        let mut scores =
+            Mat::new_rows_cols_with_default(1, 4, core::CV_32FC1, core::Scalar::all(0.0))?;
+        scores.data_typed_mut::<f32>()?.copy_from_slice(&[
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            0.8,
+        ]);
+        sanitize_scores(&mut scores)?;
+        let mut maximum = 0.0;
+        let mut point = Point::default();
+        core::min_max_loc(
+            &scores,
+            None,
+            Some(&mut maximum),
+            None,
+            Some(&mut point),
+            &Mat::default(),
+        )?;
+        assert_eq!(point, Point::new(3, 0));
+        assert!((maximum - 0.8).abs() < 1e-6);
+        Ok(())
+    }
+}
+
+fn reject_flat_patches(
+    scores: &mut Mat,
+    search: &impl core::ToInputArray,
+    size: Size,
+) -> VisionResult<()> {
+    let mut sum = Mat::default();
+    let mut squared = Mat::default();
+    imgproc::integral2(search, &mut sum, &mut squared, core::CV_64F, core::CV_64F)?;
+    let stride = sum.cols() as usize;
+    let sums = sum.data_typed::<f64>()?;
+    let squares = squared.data_typed::<f64>()?;
+    let width = scores.cols() as usize;
+    let height = scores.rows() as usize;
+    let values = scores.data_typed_mut::<f32>()?;
+    let area = size.area() as f64;
+    for y in 0..height {
+        for x in 0..width {
+            let a = y * stride + x;
+            let b = a + size.width as usize;
+            let c = a + size.height as usize * stride;
+            let d = c + size.width as usize;
+            let mean = (sums[d] - sums[b] - sums[c] + sums[a]) / area;
+            let variance = (squares[d] - squares[b] - squares[c] + squares[a]) / area - mean * mean;
+            if variance < 0.005_f64.powi(2) {
+                values[y * width + x] = -2.0;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn representation(image: &Mat, mode: &str) -> VisionResult<Mat> {
-    if mode == "color-smooth" || mode == "chroma-smooth" {
+    if mode == "red-green" {
+        // Suppress green/neutral background before smoothing. This is a color
+        // feature experiment, not a general water or bobber segmentation.
+        let mut feature = Mat::new_rows_cols_with_default(
+            image.rows(),
+            image.cols(),
+            core::CV_32FC1,
+            core::Scalar::all(0.0),
+        )?;
+        for y in 0..image.rows() {
+            for x in 0..image.cols() {
+                let pixel = image.at_2d::<core::Vec3b>(y, x)?;
+                let red = pixel[2] as f32;
+                let green = pixel[1] as f32;
+                *feature.at_2d_mut::<f32>(y, x)? = ((red - green) / (red + green + 1.0)).max(0.0);
+            }
+        }
+        let mut smooth = Mat::default();
+        imgproc::gaussian_blur_def(&feature, &mut smooth, Size::new(5, 5), 1.0)?;
+        return Ok(smooth);
+    }
+    if mode == "color-smooth"
+        || mode == "chroma-smooth"
+        || mode == "center-weighted"
+        || mode == "color-red"
+    {
         let mut smooth = Mat::default();
         imgproc::gaussian_blur_def(image, &mut smooth, Size::new(5, 5), 1.0)?;
         return representation(
             &smooth,
-            if mode == "color-smooth" {
+            if mode != "chroma-smooth" {
                 "color"
             } else {
                 "chroma"
@@ -62,15 +191,31 @@ fn representation(image: &Mat, mode: &str) -> VisionResult<Mat> {
 fn main() -> VisionResult<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if !(2..=3).contains(&args.len())
-        || (args.len() == 3 && !matches!(args[2].as_str(), "--diagnose" | "--smooth"))
+        || (args.len() == 3
+            && !matches!(
+                args[2].as_str(),
+                "--diagnose" | "--smooth" | "--focus" | "--foreground" | "--hybrid" | "--ensemble"
+            ))
     {
         return Err(
-            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth]; fixed experiment for 1920x1080 images"
+            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth|--focus|--foreground|--hybrid|--ensemble]; fixed experiment for 1920x1080 images"
                 .into(),
         );
     }
     let diagnose = args.len() == 3;
-    let modes: &[&str] = if args.get(2).is_some_and(|a| a == "--smooth") {
+    let ensemble = args.get(2).is_some_and(|a| a == "--ensemble");
+    let hybrid = args.get(2).is_some_and(|a| a == "--hybrid");
+    let foreground = args.get(2).is_some_and(|a| a == "--foreground");
+    let focus = ensemble || hybrid || foreground || args.get(2).is_some_and(|a| a == "--focus");
+    let modes: &[&str] = if ensemble {
+        &["color-smooth", "red-green", "color-red"]
+    } else if hybrid {
+        &["color-red"]
+    } else if foreground {
+        &["red-green"]
+    } else if focus {
+        &["color-smooth", "center-weighted"]
+    } else if args.get(2).is_some_and(|a| a == "--smooth") {
         &["color-smooth", "chroma-smooth"]
     } else if diagnose {
         &["color", "contrast", "chroma", "edges-low"]
@@ -117,7 +262,7 @@ fn main() -> VisionResult<()> {
     }
     let mut templates = Vec::new();
     for (name, split, _, rect, image) in &rows {
-        if split != "template" {
+        if split != "template" && !(focus && split == "evaluation-template") {
             continue;
         }
         let crop = Mat::roi(image, *rect)?.try_clone()?;
@@ -139,7 +284,22 @@ fn main() -> VisionResult<()> {
                 if (0..template.channels() as usize).all(|i| stddev[i] < 1e-6) {
                     continue;
                 }
-                templates.push((name.clone(), mode, scale, template));
+                let mask = if mode == "center-weighted" {
+                    center_mask(template.size()?)?
+                } else {
+                    Mat::default()
+                };
+                let red_template = if mode == "color-red" {
+                    let red = representation(&resized, "red-green")?;
+                    core::mean_std_dev(&red, &mut mean, &mut stddev, &Mat::default())?;
+                    if stddev[0] < 0.005 {
+                        continue;
+                    }
+                    Some(red)
+                } else {
+                    None
+                };
+                templates.push((name.clone(), mode, scale, template, mask, red_template));
             }
         }
     }
@@ -157,12 +317,23 @@ fn main() -> VisionResult<()> {
     for (name, split, present, target, image) in &rows {
         for &mode in modes {
             let frame = representation(image, mode)?;
+            let red_frame = if mode == "color-red" {
+                Some(representation(image, "red-green")?)
+            } else {
+                None
+            };
             for &(region_name, region) in &regions {
                 let search = Mat::roi(&frame, region)?;
                 let mut best = (-2.0, Rect::default(), String::new(), 0.0);
                 let mut target_score = -2.0_f64;
-                for (template_name, template_mode, scale, template) in &templates {
+                for (template_name, template_mode, scale, template, mask, red_template) in
+                    &templates
+                {
                     if *template_mode != mode {
+                        continue;
+                    }
+                    // Never count a source screenshot matching its own crop.
+                    if focus && template_name == name {
                         continue;
                     }
                     let mut scores = Mat::default();
@@ -171,8 +342,28 @@ fn main() -> VisionResult<()> {
                         template,
                         &mut scores,
                         imgproc::TM_CCOEFF_NORMED,
-                        &Mat::default(),
+                        mask,
                     )?;
+                    sanitize_scores(&mut scores)?;
+                    if let (Some(red_image), Some(red_template)) = (&red_frame, red_template) {
+                        let red_search = Mat::roi(red_image, region)?;
+                        let mut red_scores = Mat::default();
+                        imgproc::match_template(
+                            &red_search,
+                            red_template,
+                            &mut red_scores,
+                            imgproc::TM_CCOEFF_NORMED,
+                            &Mat::default(),
+                        )?;
+                        sanitize_scores(&mut red_scores)?;
+                        reject_flat_patches(&mut red_scores, &red_search, red_template.size()?)?;
+                        let mut combined = Mat::default();
+                        core::add_weighted(&scores, 0.5, &red_scores, 0.5, 0.0, &mut combined, -1)?;
+                        scores = combined;
+                    }
+                    if mode == "red-green" {
+                        reject_flat_patches(&mut scores, &search, template.size()?)?;
+                    }
                     // Diagnostic only: labels never influence the predicted best location.
                     if present == "1" {
                         let x0 = (target.x - region.x - template.cols() / 2).max(0);

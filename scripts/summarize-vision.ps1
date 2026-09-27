@@ -5,10 +5,10 @@ if (!$rows) { throw 'Empty evaluation CSV.' }
 $culture = [Globalization.CultureInfo]::InvariantCulture
 $summary = foreach ($group in ($rows | Group-Object mode,region)) {
     $calibration = @($group.Group | Where-Object { $_.split -eq 'calibration' -and $_.present -eq '0' })
-    $evaluation = @($group.Group | Where-Object split -eq 'evaluation')
+    $evaluation = @($group.Group | Where-Object { $_.split -in @('evaluation', 'evaluation-template') })
     if (!$calibration.Count -or !$evaluation.Count) { throw 'Each group requires calibration negatives and evaluation rows.' }
     $maxNegative = ($calibration | ForEach-Object { [double]::Parse($_.score, $culture) } | Measure-Object -Maximum).Maximum
-    $threshold = [Math]::Min(1.0, $maxNegative + 0.05)
+    $threshold = $maxNegative + 0.05
     $correct = 0; $missed = 0; $wrongLocation = 0; $falseAlarm = 0; $correctNegative = 0
     foreach ($row in $evaluation) {
         $accepted = [double]::Parse($row.score, $culture) -ge $threshold
