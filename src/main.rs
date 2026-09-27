@@ -76,7 +76,17 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
     // Now decode the latest frame we grabbed
     cap.retrieve(&mut frame, 0)?;
 
-    // Check if frame is empty
+    frame_to_gray(&frame)
+}
+
+/// During bite monitoring, read each next frame instead of skipping five frames.
+fn capture_monitor_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
+    let mut frame = Mat::default();
+    cap.read(&mut frame)?;
+    frame_to_gray(&frame)
+}
+
+fn frame_to_gray(frame: &Mat) -> Result<Mat, Box<dyn Error>> {
     if frame.empty() {
         eprintln!("Error: Captured frame is empty");
         return Err("Empty frame captured".into());
@@ -84,7 +94,7 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
 
     // Convert to grayscale for image processing
     let mut frame_gray = Mat::default();
-    imgproc::cvt_color_def(&frame, &mut frame_gray, imgproc::COLOR_BGR2GRAY)?;
+    imgproc::cvt_color_def(frame, &mut frame_gray, imgproc::COLOR_BGR2GRAY)?;
 
     Ok(frame_gray)
 }
@@ -116,17 +126,44 @@ fn detect_splash(
 
     // Apply threshold to convert differences to binary (black/white)
     let mut thresh_frame = Mat::default();
-    imgproc::threshold(&roi, &mut thresh_frame, 50.0, 255.0, imgproc::THRESH_BINARY)?;
+    imgproc::threshold(&roi, &mut thresh_frame, 20.0, 255.0, imgproc::THRESH_BINARY)?;
 
     // Count non-zero pixels (white pixels indicating movement)
     let non_zero_count = core::count_non_zero(&thresh_frame)?;
 
     // If enough pixels changed, consider it a splash
-    let splash_detected = non_zero_count > 250; // Todo: Adjust this threshold based on experimentation
+    let splash_detected = (non_zero_count as f64) >= rect.area() as f64 * 0.12;
 
-    print!("{:?} ", non_zero_count);
+    print!("{non_zero_count}/{} ", rect.area());
 
     Ok(splash_detected)
+}
+
+#[cfg(test)]
+mod bite_tests {
+    use super::*;
+    use opencv::prelude::MatTrait;
+
+    #[test]
+    fn bite_threshold_scales_with_bobber_area() -> Result<(), Box<dyn Error>> {
+        let previous =
+            Mat::new_rows_cols_with_default(40, 40, core::CV_8UC1, core::Scalar::all(0.0))?;
+        let mut current = previous.try_clone()?;
+        let small = Rect::new(0, 0, 10, 10);
+        for x in 0..10 {
+            *current.at_2d_mut::<u8>(0, x)? = 30;
+        }
+        *current.at_2d_mut::<u8>(1, 0)? = 30;
+        assert!(!detect_splash(&previous, &current, small)?);
+        *current.at_2d_mut::<u8>(1, 1)? = 30;
+        assert!(detect_splash(&previous, &current, small)?);
+        assert!(!detect_splash(
+            &previous,
+            &current,
+            Rect::new(0, 0, 20, 20)
+        )?);
+        Ok(())
+    }
 }
 
 /// Continuously monitors for a fish splash within the specified timeout period
@@ -134,14 +171,13 @@ fn wait_for_splash(
     cap: &mut VideoCapture,
     lure_location_rect: Rect,
     timeout: Duration,
+    mut prev_frame: Mat,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    // Capture initial frame for comparison
-    let mut prev_frame = capture_frame(cap)?;
     let start_time = Instant::now();
 
     // Keep checking for splashes until timeout
     while Instant::now().duration_since(start_time) < timeout {
-        let current_frame = capture_frame(cap)?;
+        let current_frame = capture_monitor_frame(cap)?;
 
         // Check if a splash occurred
         if detect_splash(&prev_frame, &current_frame, lure_location_rect)? {
@@ -195,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let lure_location_rect = detection.rect;
 
         // DBUG CAPTURE OUTPUT
-        let mut debug_frame = capture_frame(&mut cap)?;
+        let mut debug_frame = frame.try_clone()?;
         imgproc::rectangle(
             &mut debug_frame,
             lure_location_rect,
@@ -207,7 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         save_debug_frame(&debug_frame, "captured_frame.jpg")?;
 
         // detect splash
-        let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout)?;
+        let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout, frame)?;
 
         if splash_detected {
             keyboard.tap(bite_key)?;

@@ -61,9 +61,11 @@ names are A-Z, 0-9 and F1-F12. An invalid value stops the bot at startup.
 The bot does not open `/dev/hidg1` or send mouse movement or clicks. If no
 bobber is found, it waits briefly and casts again.
 
-The screenshot tests do not validate bite detection over time, capture latency,
-keyboard binding in the game, or recognition accuracy on actual gameplay. Those
-require recordings or hardware.
+The screenshot tests do not validate bite detection over time. Two local
+recordings were reviewed in [the bite-video report](bite-video-review.md),
+which motivated an initial motion threshold. Pi capture latency, keyboard
+binding in the game, and recognition accuracy on actual gameplay still need
+hardware validation.
 The synthetic Rust tests verify basic matching behavior, not real-world accuracy.
 
 Local smoke checks with the supplied `bobber1.png` gave correlation 1.0 for the
