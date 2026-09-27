@@ -1,13 +1,40 @@
 param(
     [Parameter(Mandatory)][string]$CsvPath,
     [Parameter(Mandatory)][string]$OutputPath,
-    [switch]$IncludeTriColor
+    [switch]$IncludeTriColor,
+    [string]$LineCsvPath
 )
 $ErrorActionPreference = 'Stop'
 $culture = [Globalization.CultureInfo]::InvariantCulture
 $rows = @(Import-Csv -LiteralPath $CsvPath)
 $modes = @('color-smooth', 'red-green', 'color-red')
 if ($IncludeTriColor) { $modes += @('color-trio', 'red-trio', 'hybrid-trio') }
+if ($LineCsvPath) {
+    if (!$IncludeTriColor) { throw 'Line evidence requires -IncludeTriColor' }
+    $lineRows = @(Import-Csv -LiteralPath $LineCsvPath)
+    $lineScores = @{}
+    foreach ($lineRow in $lineRows) {
+        $key = "$($lineRow.file)|$($lineRow.kind)"
+        if ($lineScores.ContainsKey($key)) { throw "Duplicate line evidence: $key" }
+        $value = [double]::Parse($lineRow.score, $culture)
+        if (![double]::IsFinite($value) -or $value -lt 0 -or $value -gt 1) { throw "Invalid line evidence: $key" }
+        $lineScores[$key] = $lineRow
+    }
+    $extraRows = @(foreach ($row in $rows | Where-Object mode -eq 'color-trio') {
+        $key = "$($row.file)|color-trio"
+        if (!$lineScores.ContainsKey($key)) { throw "Missing line evidence: $key" }
+        $evidence = $lineScores[$key]
+        foreach ($coordinate in @('x', 'y', 'width', 'height')) {
+            if ([int]$row.$coordinate -ne [int]$evidence.$coordinate) { throw "Mismatched line evidence: $key ($coordinate)" }
+        }
+        $copy = $row | Select-Object *
+        $copy.mode = 'color-trio-line'
+        $copy.score = ([double]::Parse($row.score, $culture) + 0.05 * [double]::Parse($evidence.score, $culture)).ToString('F6', $culture)
+        $copy
+    })
+    $rows += $extraRows
+    $modes += 'color-trio-line'
+}
 $thresholds = @{}
 foreach ($mode in $modes) {
     $calibration = @($rows | Where-Object { $_.mode -eq $mode -and $_.split -eq 'calibration' -and $_.present -eq '0' })
@@ -16,7 +43,7 @@ foreach ($mode in $modes) {
     # Never cap at 1: if no margin is available, this channel must reject all.
     $thresholds[$mode] = ($scores | Measure-Object -Maximum).Maximum + 0.05
     # A color gate alone is insufficient when calibration has no eligible windows.
-    if ($mode.EndsWith('-trio')) { $thresholds[$mode] = [Math]::Max(0.60, $thresholds[$mode]) }
+    if ($mode.EndsWith('-trio') -or $mode -eq 'color-trio-line') { $thresholds[$mode] = [Math]::Max(0.60, $thresholds[$mode]) }
 }
 $predictions = @(foreach ($group in ($rows | Where-Object { $_.split -notin @('template', 'calibration') } | Group-Object file)) {
     if ($group.Count -ne $modes.Count -or @($group.Group.mode | Sort-Object -Unique).Count -ne $modes.Count) {

@@ -209,3 +209,37 @@ This exclusion applies to evaluation only. The shared bot/`image-test` edge
 detector loads `templates/blob6.png` as a regular production template and does
 match its own 171431 source screenshot at threshold 0.80. Its source exclusion
 in `vision-eval` remains necessary when judging generalization to other frames.
+
+## Fishing-line evidence
+
+Many frames show a thin dark line **below** the bobber, sometimes leaning left
+or right. `line-profile` measures this as a separate diagnostic for each predicted
+candidate window. It checks 51 pixels from 5 to 55 pixels below the candidate,
+tries 33 straight slopes from -0.8 to +0.8 and an attachment offset of up to
+five pixels. At each step, a pixel counts when it is at least eight grayscale
+levels darker than pixels eight columns to either side and below level 90. The
+score is the largest fraction of matching steps on one path. The reference-box
+rows in the profile are for diagnosis and never enter candidate selection.
+
+```powershell
+cargo run --locked --release --bin line-profile -- samples/focus-expanded.csv output/ensemble-all-colors.csv output/line-new.csv
+.\scripts\summarize-ensemble.ps1 -CsvPath output/ensemble-all-colors.csv -OutputPath output/ensemble-line-new.json -IncludeTriColor -LineCsvPath output/line-new.csv
+```
+
+The optional summary adds one channel: the score of the selected `color-trio`
+candidate plus `0.05 × line score` at that same location. It checks that the line
+measurement belongs to the same candidate rectangle. Its threshold is the
+maximum of the three calibration-negative scores plus 0.05, or 0.60 if higher.
+The other six channels remain eligible, so a faint or hidden line never rejects
+an existing detection. The line does not propose new candidate locations.
+
+On these development frames this gives **12/13** correctly localized positives
+and **0/6** false alarms, versus 11/13 and 0/6 without the line channel. It
+accepts 171431; 171419 remains missed because the image comparison favors a
+different location before the line check. A line bonus on every channel caused
+false alarms in this set, so only the three-color-gated candidate receives it.
+The coefficient and channel choice were selected after examining these frames;
+this is not an independent validation. The bot's real-time decision still uses
+its original edge comparison and the added `blob6.png` template. A synthetic
+unit test confirms that the line measure follows a slanted dark strand but does
+not mistake a horizontal wave for one.
