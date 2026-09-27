@@ -129,3 +129,45 @@ Validation includes the two numeric regression tests in `vision-eval`, the four
 library tests, all 25 frames/75 prediction rows, and a check that hiding evaluation
 ground truth leaves all selected predictions unchanged. Screenshots, labels, raw
 scores and result pages remain local in ignored directories.
+
+## Three-color co-occurrence experiment
+
+`--ensemble-colors` adds color-gated versions of all three ensemble channels.
+Each candidate window must contain at least two pixels in each HSV band before
+it can compete in a gated channel. The window follows the scaled template size;
+the check examines the original, unsmoothed screenshot. Prefix sums make window
+counts constant-time. Candidate selection never uses reference boxes.
+
+| Band | OpenCV hue (0–179) | Minimum saturation | Value range |
+|---|---|---:|---|
+| Brown | 8–30 | 40 | 20–220 |
+| Red | 170–179 or 0–7 | 70 | 20–255 |
+| Blue | 90–135 | 35 | 15–255 |
+
+Parameters are in `TriColorConfig::default()` in `src/colors.rs`. These are
+experimental color ranges, not universal definitions of the object's colors.
+The existing three channels remain eligible: only 13 of 16 reference crops
+contain all three bands. 151827, 171345 and 171419 have no qualifying blue pixels.
+A mandatory gate on every channel would therefore discard real bobbers.
+
+Each added channel uses its own maximum calibration-negative score plus 0.05,
+with a minimum threshold of 0.60. Color co-occurrence alone never accepts a match.
+The winning accepted channel still uses the largest score-minus-threshold margin.
+
+```powershell
+cargo run --locked --release --bin vision-eval -- samples/focus-expanded.csv output/colors-new.csv --ensemble-colors
+.\scripts\summarize-ensemble.ps1 -CsvPath output/colors-new.csv -OutputPath output/colors-new.json -IncludeTriColor
+cargo run --locked --release --bin color-profile -- samples/focus-expanded.csv output/colors-new.csv output/color-counts-new.csv
+```
+
+`color-profile` exports brown/red/blue pixel counts for reference and predicted
+windows. Reference counts are diagnostics only. The new library tests cover
+co-occurrence in the same window, red hue wraparound and rejection of dark noise.
+The hardware bot and `image-test` are unchanged.
+
+On the same development set this improves 10/13 to **11/13** correctly localized
+positives, with **0/6** negative-frame false alarms. 171341 is recovered by
+`red-trio`; 171419 and 171431 remain missed. All previously correct frames remain
+correct. Added thresholds are 0.768771 (color-trio), 0.884498 (red-trio) and
+0.798053 (hybrid-trio). This is not an independent test: these frames informed
+development. Eight automated tests pass on native Windows/OpenCV.

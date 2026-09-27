@@ -6,6 +6,7 @@ use opencv::{
 };
 use std::{fs, io::Write, path::Path};
 use wow_hardware_fishbot::VisionResult;
+use wow_hardware_fishbot::colors::{ColorMap, TriColorConfig};
 
 /// Soft spatial weighting, not a learned foreground segmentation.
 fn center_mask(size: Size) -> VisionResult<Mat> {
@@ -112,6 +113,11 @@ fn reject_flat_patches(
 }
 
 fn representation(image: &Mat, mode: &str) -> VisionResult<Mat> {
+    let mode = match mode {
+        "red-trio" => "red-green",
+        "hybrid-trio" => "color-red",
+        other => other,
+    };
     if mode == "red-green" {
         // Suppress green/neutral background before smoothing. This is a color
         // feature experiment, not a general water or bobber segmentation.
@@ -137,6 +143,7 @@ fn representation(image: &Mat, mode: &str) -> VisionResult<Mat> {
         || mode == "chroma-smooth"
         || mode == "center-weighted"
         || mode == "color-red"
+        || mode == "color-trio"
     {
         let mut smooth = Mat::default();
         imgproc::gaussian_blur_def(image, &mut smooth, Size::new(5, 5), 1.0)?;
@@ -194,20 +201,36 @@ fn main() -> VisionResult<()> {
         || (args.len() == 3
             && !matches!(
                 args[2].as_str(),
-                "--diagnose" | "--smooth" | "--focus" | "--foreground" | "--hybrid" | "--ensemble"
+                "--diagnose"
+                    | "--smooth"
+                    | "--focus"
+                    | "--foreground"
+                    | "--hybrid"
+                    | "--ensemble"
+                    | "--ensemble-colors"
             ))
     {
         return Err(
-            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth|--focus|--foreground|--hybrid|--ensemble]; fixed experiment for 1920x1080 images"
+            "Usage: vision-eval MANIFEST.csv NEW_OUTPUT.csv [--diagnose|--smooth|--focus|--foreground|--hybrid|--ensemble|--ensemble-colors]; fixed experiment for 1920x1080 images"
                 .into(),
         );
     }
     let diagnose = args.len() == 3;
-    let ensemble = args.get(2).is_some_and(|a| a == "--ensemble");
+    let tri_color = args.get(2).is_some_and(|a| a == "--ensemble-colors");
+    let ensemble = tri_color || args.get(2).is_some_and(|a| a == "--ensemble");
     let hybrid = args.get(2).is_some_and(|a| a == "--hybrid");
     let foreground = args.get(2).is_some_and(|a| a == "--foreground");
     let focus = ensemble || hybrid || foreground || args.get(2).is_some_and(|a| a == "--focus");
-    let modes: &[&str] = if ensemble {
+    let modes: &[&str] = if tri_color {
+        &[
+            "color-smooth",
+            "red-green",
+            "color-red",
+            "color-trio",
+            "red-trio",
+            "hybrid-trio",
+        ]
+    } else if ensemble {
         &["color-smooth", "red-green", "color-red"]
     } else if hybrid {
         &["color-red"]
@@ -289,7 +312,7 @@ fn main() -> VisionResult<()> {
                 } else {
                     Mat::default()
                 };
-                let red_template = if mode == "color-red" {
+                let red_template = if matches!(mode, "color-red" | "hybrid-trio") {
                     let red = representation(&resized, "red-green")?;
                     core::mean_std_dev(&red, &mut mean, &mut stddev, &Mat::default())?;
                     if stddev[0] < 0.005 {
@@ -315,9 +338,14 @@ fn main() -> VisionResult<()> {
         "file,split,present,mode,region,score,x,y,width,height,template,scale,center_in_target,iou,target_score"
     )?;
     for (name, split, present, target, image) in &rows {
+        let colors = if tri_color {
+            Some(ColorMap::from_bgr(image, TriColorConfig::default())?)
+        } else {
+            None
+        };
         for &mode in modes {
             let frame = representation(image, mode)?;
-            let red_frame = if mode == "color-red" {
+            let red_frame = if matches!(mode, "color-red" | "hybrid-trio") {
                 Some(representation(image, "red-green")?)
             } else {
                 None
@@ -361,8 +389,24 @@ fn main() -> VisionResult<()> {
                         core::add_weighted(&scores, 0.5, &red_scores, 0.5, 0.0, &mut combined, -1)?;
                         scores = combined;
                     }
-                    if mode == "red-green" {
+                    if matches!(mode, "red-green" | "red-trio") {
                         reject_flat_patches(&mut scores, &search, template.size()?)?;
+                    }
+                    if mode.ends_with("-trio") {
+                        let colors = colors.as_ref().ok_or("Missing color evidence")?;
+                        let width = scores.cols() as usize;
+                        for (index, score) in scores.data_typed_mut::<f32>()?.iter_mut().enumerate()
+                        {
+                            let window = Rect::new(
+                                region.x + (index % width) as i32,
+                                region.y + (index / width) as i32,
+                                template.cols(),
+                                template.rows(),
+                            );
+                            if !colors.evidence(window)?.passed {
+                                *score = -2.0;
+                            }
+                        }
                     }
                     // Diagnostic only: labels never influence the predicted best location.
                     if present == "1" {

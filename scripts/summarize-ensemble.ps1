@@ -1,11 +1,13 @@
 param(
     [Parameter(Mandatory)][string]$CsvPath,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [switch]$IncludeTriColor
 )
 $ErrorActionPreference = 'Stop'
 $culture = [Globalization.CultureInfo]::InvariantCulture
 $rows = @(Import-Csv -LiteralPath $CsvPath)
 $modes = @('color-smooth', 'red-green', 'color-red')
+if ($IncludeTriColor) { $modes += @('color-trio', 'red-trio', 'hybrid-trio') }
 $thresholds = @{}
 foreach ($mode in $modes) {
     $calibration = @($rows | Where-Object { $_.mode -eq $mode -and $_.split -eq 'calibration' -and $_.present -eq '0' })
@@ -13,6 +15,8 @@ foreach ($mode in $modes) {
     $scores = @($calibration | ForEach-Object { [double]::Parse($_.score, $culture) })
     # Never cap at 1: if no margin is available, this channel must reject all.
     $thresholds[$mode] = ($scores | Measure-Object -Maximum).Maximum + 0.05
+    # A color gate alone is insufficient when calibration has no eligible windows.
+    if ($mode.EndsWith('-trio')) { $thresholds[$mode] = [Math]::Max(0.60, $thresholds[$mode]) }
 }
 $predictions = @(foreach ($group in ($rows | Where-Object { $_.split -notin @('template', 'calibration') } | Group-Object file)) {
     if ($group.Count -ne $modes.Count -or @($group.Group.mode | Sort-Object -Unique).Count -ne $modes.Count) {

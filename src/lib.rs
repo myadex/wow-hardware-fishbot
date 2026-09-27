@@ -6,6 +6,7 @@ use opencv::{
 use std::{error::Error, path::Path};
 
 pub type VisionResult<T> = Result<T, Box<dyn Error>>;
+pub mod colors;
 
 pub struct Template {
     pub name: String,
