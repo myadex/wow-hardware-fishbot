@@ -8,7 +8,7 @@ use opencv::{
     imgcodecs, imgproc,
 };
 use std::time::{Duration, Instant};
-use wow_hardware_fishbot::{find_bobber, load_templates};
+use wow_hardware_fishbot::{find_bobber_in_frame, load_color_templates, load_templates};
 
 use rand::Rng;
 use std::error::Error;
@@ -76,7 +76,10 @@ fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
     // Now decode the latest frame we grabbed
     cap.retrieve(&mut frame, 0)?;
 
-    frame_to_gray(&frame)
+    if frame.empty() {
+        return Err("Empty frame captured".into());
+    }
+    Ok(frame)
 }
 
 /// During bite monitoring, read each next frame instead of skipping five frames.
@@ -100,7 +103,7 @@ fn frame_to_gray(frame: &Mat) -> Result<Mat, Box<dyn Error>> {
 }
 
 fn save_debug_frame(frame: &Mat, filename: &str) -> Result<(), Box<dyn Error>> {
-    // Capture frames are already grayscale; OpenCV can write them directly.
+    // OpenCV writes either the BGR cast frame or the grayscale monitor frame.
     let params = Vector::new();
     match imgcodecs::imwrite(filename, frame, &params) {
         Ok(_) => println!("Frame saved as '{}'", filename),
@@ -108,6 +111,16 @@ fn save_debug_frame(frame: &Mat, filename: &str) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn bite_monitor_rect(rect: Rect) -> Rect {
+    // The 32-pixel color crops include a water border. Exclude that border
+    // so short bobber motion does not get diluted by a larger area threshold.
+    if (30..=48).contains(&rect.width) && (30..=48).contains(&rect.height) {
+        Rect::new(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6)
+    } else {
+        rect
+    }
 }
 
 /// Detects if a fish has "splashed" by comparing two consecutive frames
@@ -164,6 +177,22 @@ mod bite_tests {
         )?);
         Ok(())
     }
+
+    #[test]
+    fn color_crop_uses_inner_bite_window() {
+        assert_eq!(
+            bite_monitor_rect(Rect::new(414, 236, 32, 32)),
+            Rect::new(417, 239, 26, 26)
+        );
+        assert_eq!(
+            bite_monitor_rect(Rect::new(954, 402, 28, 25)),
+            Rect::new(954, 402, 28, 25)
+        );
+        assert_eq!(
+            bite_monitor_rect(Rect::new(900, 350, 70, 49)),
+            Rect::new(900, 350, 70, 49)
+        );
+    }
 }
 
 /// Continuously monitors for a fish splash within the specified timeout period
@@ -203,8 +232,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the keyboard HID gadget.
     let mut keyboard = HidKeyboard::new()?;
 
-    // Load the templates
+    // Load both video-derived color views and the previous edge templates.
     let templates = load_templates(Path::new("./templates"))?;
+    let color_templates = load_color_templates(Path::new("./color-templates"))?;
 
     // Initialize the video capture device
     let mut cap = capture_init()?;
@@ -221,14 +251,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let frame = capture_frame(&mut cap)?;
 
         // Detect bobber on caputre frame
-        let Some(detection) = find_bobber(&frame, &templates, 0.80)? else {
+        let Some(detection) = find_bobber_in_frame(&frame, &templates, &color_templates, 0.80)?
+        else {
             println!("No reliable bobber match; retrying cast");
             random_delay(1000, 2000);
             continue;
         };
 
-        // Create rectangle surrounding bobber
-        let lure_location_rect = detection.rect;
+        println!(
+            "Bobber template={} score={:.3} x={} y={} width={} height={}",
+            detection.template,
+            detection.score,
+            detection.rect.x,
+            detection.rect.y,
+            detection.rect.width,
+            detection.rect.height
+        );
+        let lure_location_rect = bite_monitor_rect(detection.rect);
 
         // DBUG CAPTURE OUTPUT
         let mut debug_frame = frame.try_clone()?;
@@ -243,7 +282,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         save_debug_frame(&debug_frame, "captured_frame.jpg")?;
 
         // detect splash
-        let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout, frame)?;
+        let splash_detected = wait_for_splash(
+            &mut cap,
+            lure_location_rect,
+            timeout,
+            frame_to_gray(&frame)?,
+        )?;
 
         if splash_detected {
             keyboard.tap(bite_key)?;

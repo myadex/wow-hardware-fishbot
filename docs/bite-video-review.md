@@ -50,15 +50,15 @@ cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09
 cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09-25 165221.mp4" output/video-2-motion-new.csv 281 323 27 27
 ```
 
-The manually placed rectangles are for replay only. At runtime the detector's
-bobber rectangle is used. **Bobber localization remains a separate limitation:**
-the current edge matcher at threshold 0.80 did not accept still frames from
-either cropped recording. A separate central-water smoothed-color probe with
-video-derived crops selected the bobber correctly in four reviewed frames with
-scores 0.796–0.887; the six labeled no-bobber screenshots scored below 0.721.
-That probe is offline and has not replaced the bot's locator. Its thresholds
-and templates need validation on full-resolution Pi capture before rollout.
+The manually placed rectangles above are for diagnostic replay. The bot now
+uses a smoothed-color locator with nine shipped crops, then the original edge
+matcher as fallback. For 32×32 color matches it monitors the inner 26×26 region
+to avoid diluting short motion with the water border. Replaying the three bites
+with the actual inner rectangles first triggers at 8.000, 36.333 and 17.567
+seconds. The new locator finds 18 reviewed bobber video frames, including both
+camera positions in the first recording, and rejects two reviewed frames before
+the bobber appears in the second. See [the locator review](color-locator.md).
 
-These three confirmed bites support the new motion thresholds, but do not measure
+These three confirmed bites support the motion thresholds, but do not measure
 false-positive rate across other water scenes or actual keyboard latency on the
 Pi. The bot still sends F8 for a bite; that HID behavior needs the hardware run.

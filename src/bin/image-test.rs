@@ -4,13 +4,15 @@ use opencv::{
     prelude::*,
 };
 use std::path::Path;
-use wow_hardware_fishbot::{VisionResult, find_bobber, load_templates};
+use wow_hardware_fishbot::{
+    VisionResult, find_bobber_in_frame, load_color_templates, load_templates,
+};
 
 fn main() -> VisionResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
         println!(
-            "image-test INPUT OUTPUT [TEMPLATE_DIRECTORY] [THRESHOLD]\nDefault templates: templates; threshold: 0.80 (uncalibrated).\nExit codes: 0 = match, 2 = no match, 1 = error. No capture or HID devices are used."
+            "image-test INPUT OUTPUT [TEMPLATE_DIRECTORY] [EDGE_THRESHOLD]\nColor templates: color-templates (threshold 0.78); edge templates: templates (threshold 0.80 by default).\nExit codes: 0 = match, 2 = no match, 1 = error. No capture or HID devices are used."
         );
         return Ok(());
     }
@@ -26,6 +28,7 @@ fn main() -> VisionResult<()> {
     let templates = load_templates(Path::new(
         args.get(2).map(String::as_str).unwrap_or("templates"),
     ))?;
+    let color_templates = load_color_templates(Path::new("color-templates"))?;
     let threshold = args
         .get(3)
         .map(|s| s.parse::<f64>())
@@ -38,9 +41,7 @@ fn main() -> VisionResult<()> {
     if image.empty() {
         return Err("Input image could not be read".into());
     }
-    let mut gray = opencv::core::Mat::default();
-    imgproc::cvt_color_def(&image, &mut gray, imgproc::COLOR_BGR2GRAY)?;
-    let found = find_bobber(&gray, &templates, threshold)?;
+    let found = find_bobber_in_frame(&image, &templates, &color_templates, threshold)?;
     if let Some(ref detection) = found {
         println!(
             "MATCH template={} score={:.4} x={} y={} width={} height={}",

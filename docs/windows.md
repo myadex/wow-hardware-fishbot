@@ -29,10 +29,11 @@ cargo run --locked --bin image-test -- --help
 ## Try a screenshot
 
 Save a full-resolution PNG in a local `samples` directory. Start with 1920x1080
-and the same game UI scale you intend to use on the Pi. Template matching does
-not resize templates; the original templates may not match your UI scale or bobber.
-Crop additional PNG templates tightly around your own bobber and put them in a
-separate directory if necessary.
+and the same game UI scale you intend to use on the Pi. The bot now searches
+with resized, smoothed color crops at 0.8, 1.0 and 1.2 scale inside the central
+screen area, then falls back to the original edge templates. Additional color
+crops belong in `color-templates/`; keep a no-bobber sample set when changing
+that bank.
 
 ```powershell
 New-Item -ItemType Directory -Force samples, output
@@ -41,17 +42,19 @@ cargo run --locked --bin image-test -- samples\fishing.png output\fishing-result
 
 The terminal prints the matching template, correlation score, and rectangle.
 A green rectangle marks an accepted match. A score is not a probability.
-The initial threshold of 0.80 is uncalibrated: tune it with screenshots both with
-and without a bobber, at different water backgrounds and lighting conditions.
+The color threshold is 0.78; the optional command-line threshold controls only
+the edge fallback (default 0.80). Both need checking on new capture conditions.
 Existing output files are never overwritten; choose a new name for each run.
 Exit codes are 0 for a match, 2 for no match, and 1 for an input/runtime error.
 
-`templates/blob6.png` is a crop from screenshot 171431 and is loaded by both
-`image-test` and the bot with the other templates. At threshold 0.80, the shared
-edge detector found it in that screenshot at `(954, 402, 28, 25)` with score
-0.8122. The six labeled screenshots without a bobber were rejected when tested
-with the whole template directory. This checks that the saved crop works on its
-own screenshot; it does not establish how reliably it will find other bobbers.
+`templates/blob6.png` remains an edge template from screenshot 171431. The
+new color bank includes six labeled screenshot views and three video views.
+The video templates are tiny crops; the full recordings remain local. On the
+local development set, after excluding each template's own source screenshot,
+the combined detector localizes 8/9 other positive screenshots and rejects all
+9 labeled no-bobber screenshots. It also localizes 18 reviewed video frames and
+rejects two video frames before the bobber appears. These frames are from the
+same inspected sessions, so they do not establish independent accuracy.
 
 The offline command and Pi bot share the same detection code. The bot uses only
 the keyboard HID gadget at `/dev/hidg0`: key `2` casts, and **F8** is tapped when
@@ -63,7 +66,8 @@ bobber is found, it waits briefly and casts again.
 
 The screenshot tests do not validate bite detection over time. Two local
 recordings were reviewed in [the bite-video report](bite-video-review.md),
-which motivated an initial motion threshold. Pi capture latency, keyboard
+which motivated the motion threshold and an inner 26×26 monitoring window for
+32×32 video crops. Pi capture latency, keyboard
 binding in the game, and recognition accuracy on actual gameplay still need
 hardware validation.
 The synthetic Rust tests verify basic matching behavior, not real-world accuracy.

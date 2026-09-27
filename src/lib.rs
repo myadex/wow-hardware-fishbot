@@ -6,7 +6,9 @@ use opencv::{
 use std::{error::Error, path::Path};
 
 pub type VisionResult<T> = Result<T, Box<dyn Error>>;
+mod color_locator;
 pub mod colors;
+pub use color_locator::{ColorTemplate, find_color_bobber, load_color_templates};
 
 pub struct Template {
     pub name: String,
@@ -130,6 +132,25 @@ pub fn find_bobber(
         return Err("All templates are larger than the input image".into());
     }
     Ok(best)
+}
+
+/// Uses the locally reviewed color view first, retaining the previous edge matcher
+/// for screenshots that the video-derived color crops do not cover.
+pub fn find_bobber_in_frame(
+    bgr: &Mat,
+    edge_templates: &[Template],
+    color_templates: &[ColorTemplate],
+    edge_threshold: f64,
+) -> VisionResult<Option<Detection>> {
+    if !edge_threshold.is_finite() || !(0.0..=1.0).contains(&edge_threshold) {
+        return Err("Edge threshold must be a finite number between 0 and 1".into());
+    }
+    if let Some(found) = find_color_bobber(bgr, color_templates, 0.78)? {
+        return Ok(Some(found));
+    }
+    let mut gray = Mat::default();
+    imgproc::cvt_color_def(bgr, &mut gray, imgproc::COLOR_BGR2GRAY)?;
+    find_bobber(&gray, edge_templates, edge_threshold)
 }
 
 #[cfg(test)]

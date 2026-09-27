@@ -1,5 +1,10 @@
 # Offline comparison experiment
 
+The sections below record the earlier experiments in order. Statements that
+the bot or `image-test` still use only the edge matcher describe the state when
+those experiments were run. The current color-first production locator and its
+validation are documented in [the locator review](color-locator.md).
+
 `vision-eval` compares edge, grayscale, and BGR color normalized correlation.
 It does not change the production detector. All methods use the same confirmed
 template crops, resized by 0.8, 1.0, and 1.2. Each searches both the full frame
