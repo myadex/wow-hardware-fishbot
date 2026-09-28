@@ -51,7 +51,7 @@ cargo run --locked --release --bin video-motion -- "samples/Aufzeichnung 2026-09
 ```
 
 The manually placed rectangles above are for diagnostic replay. The bot now
-uses a smoothed-color locator with nine shipped crops, then the original edge
+uses a smoothed-color locator with ten shipped crops, then the original edge
 matcher as fallback. For 32×32 color matches it monitors the inner 26×26 region
 to avoid diluting short motion with the water border. Replaying the three bites
 with the actual inner rectangles first triggers at 8.000, 36.333 and 17.567

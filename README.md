@@ -9,6 +9,9 @@ Find out more about this project on my blog: https://zuernerd.github.io/blog/202
 For native Windows screenshot testing, see [the Windows guide](docs/windows.md).
 The `image-test` command uses the bot's color-first, edge-fallback detection code
 without capture or HID devices. The bundled color crops are in `color-templates/`.
+For Pi 5 / C790 setup and a live image test without HID input, see
+[the C790 guide](docs/pi5-c790.md). The bot and `capture-test` share startup
+frame discard and configurable `FISHBOT_SWAP_RB` color correction.
 The Pi bot casts with key `2`. When it detects a bite, it moves the USB HID
 mouse to the bobber and right-clicks. Both keyboard (`/dev/hidg0`) and mouse
 (`/dev/hidg1`) gadget functions are required. The pointer is parked at the

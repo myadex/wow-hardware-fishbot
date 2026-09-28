@@ -1,14 +1,14 @@
 use opencv::core;
-use opencv::prelude::{MatTraitConst, VideoCaptureTrait, VideoCaptureTraitConst};
-use opencv::videoio;
-use opencv::videoio::{CAP_V4L2, VideoCapture};
+use opencv::prelude::MatTraitConst;
 use opencv::{
     Result,
     core::{Mat, Rect, Size, Vector},
     imgcodecs, imgproc,
 };
 use std::time::{Duration, Instant};
-use wow_hardware_fishbot::{find_bobber_in_frame, load_color_templates, load_templates};
+use wow_hardware_fishbot::{
+    capture::LiveCapture, find_bobber_in_frame, load_color_templates, load_templates,
+};
 
 use rand::Rng;
 use std::error::Error;
@@ -30,65 +30,14 @@ fn random_delay(min_delay: u64, max_delay: u64) {
     sleep(Duration::from_millis(delay_ms))
 }
 
-/// Initializes and configures the video capture device
-fn capture_init() -> Result<VideoCapture, Box<dyn Error>> {
-    println!("Opening video device /dev/video0...");
-
-    // Open the video capture device
-    let mut cap = VideoCapture::new(0, CAP_V4L2)?;
-
-    // Check if the camera is opened successfully
-    if !cap.is_opened()? {
-        eprintln!("Error: Could not open video device /dev/video0");
-        return Err("Failed to open video device".into());
-    }
-
-    println!("Video device opened successfully!");
-
-    // Set video format properties exactly like your Python code
-    cap.set(videoio::CAP_PROP_FRAME_WIDTH, 1920.0)?;
-    cap.set(videoio::CAP_PROP_FRAME_HEIGHT, 1080.0)?;
-
-    // Set FOURCC to RGB3 format
-    let fourcc_rgb3 = (82u32) | (71u32 << 8) | (66u32 << 16) | (51u32 << 24);
-    cap.set(videoio::CAP_PROP_FOURCC, fourcc_rgb3 as f64)?;
-
-    // Set buffer size (equivalent to --stream-mmap=4)
-    cap.set(videoio::CAP_PROP_BUFFERSIZE, 1.0)?;
-
-    // Print actual resolution to verify settings
-    let width = cap.get(videoio::CAP_PROP_FRAME_WIDTH)?;
-    let height = cap.get(videoio::CAP_PROP_FRAME_HEIGHT)?;
-    println!("Resolution: {}x{}", width as i32, height as i32);
-
-    Ok(cap)
-}
-
 /// Captures a single frame from the video capture device
-fn capture_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
-    // Create matrix to hold the frame
-    let mut frame = Mat::default();
-
-    // This is a little hack but we have to some how grab a few frames
-    // before we decode it. Otherwise we might get an old frame.
-    for _ in 0..5 {
-        cap.grab()?;
-    }
-
-    // Now decode the latest frame we grabbed
-    cap.retrieve(&mut frame, 0)?;
-
-    if frame.empty() {
-        return Err("Empty frame captured".into());
-    }
-    Ok(frame)
+fn capture_frame(cap: &mut LiveCapture) -> Result<Mat, Box<dyn Error>> {
+    cap.fresh_frame()
 }
 
 /// During bite monitoring, read each next frame instead of skipping five frames.
-fn capture_monitor_frame(cap: &mut VideoCapture) -> Result<Mat, Box<dyn Error>> {
-    let mut frame = Mat::default();
-    cap.read(&mut frame)?;
-    frame_to_gray(&frame)
+fn capture_monitor_frame(cap: &mut LiveCapture) -> Result<Mat, Box<dyn Error>> {
+    frame_to_gray(&cap.next_frame()?)
 }
 
 fn frame_to_gray(frame: &Mat) -> Result<Mat, Box<dyn Error>> {
@@ -217,7 +166,7 @@ mod bite_tests {
 
 /// Continuously monitors for a fish splash within the specified timeout period
 fn wait_for_splash(
-    cap: &mut VideoCapture,
+    cap: &mut LiveCapture,
     lure_location_rect: Rect,
     timeout: Duration,
     mut prev_frame: Mat,
@@ -257,11 +206,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let color_templates = load_color_templates(Path::new("./color-templates"))?;
 
     // Initialize the video capture device
-    let mut cap = capture_init()?;
-    let capture_size = Size::new(
-        cap.get(videoio::CAP_PROP_FRAME_WIDTH)? as i32,
-        cap.get(videoio::CAP_PROP_FRAME_HEIGHT)? as i32,
-    );
+    let mut cap = LiveCapture::open()?;
+    let capture_size = cap.dimensions()?;
     if capture_size.width <= 0 || capture_size.height <= 0 {
         return Err("Capture dimensions are unavailable".into());
     }

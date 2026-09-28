@@ -1,7 +1,7 @@
 # Color-first bobber localization
 
 The Pi bot and Windows `image-test` now use the same two-stage locator. It first
-searches the central area (15–87% of width, 12–64% of height) with nine cropped
+searches the central area (15–87% of width, 12–64% of height) with ten cropped
 color templates in `color-templates/`, at 0.8, 1.0 and 1.2 scale. Both frame and
 templates receive a 5×5 Gaussian blur before normalized correlation. A score of
 at least 0.78 accepts the best color match. If none qualifies, the previous
@@ -14,6 +14,21 @@ small PNG crops are committed; the original screenshots, recordings and
 diagnostic output remain in ignored local directories. The three-color and
 fishing-line channels in `vision-eval` remain experiments and are not part of
 this real-time locator.
+
+The tenth crop, `pi5-hdmi-1080p.png`, comes from the user's color-corrected
+Pi HDMI frame on September 28. Its source rectangle is `(824,432,68,68)`;
+the full source image SHA-256 is
+`cfa44848c37d7f9f939e0a47d9cb9c8f5ee53b10022fea8035278b97f29a4f34`.
+This larger view was missed by the previous bank. With the added crop it
+matches at the source rectangle with score 0.9999 and the unchanged 0.78
+threshold. This is a **template-source match**, not a held-out success.
+The original full frame remains local under ignored `samples/`.
+
+Regression with this crop preserves 8/9 correct non-source screenshot
+localizations and 0/9 negative screenshot matches, as well as the same
+18 reviewed positive video locations and rejection of two pre-bobber frames.
+171459 remains missed. No new independent Pi recording or negative Pi scene
+has yet been checked. See [the live check](pi5-c790.md) for that next step.
 
 On the inspected screenshot development set there are 16 labeled positives and
 9 negatives. Seven positive screenshots are sources of a shipped crop (six
@@ -33,7 +48,8 @@ The color matches from the videos are 32×32. Their water border dilutes the
 these matches. Offline replay with these rectangles detects the three confirmed
 bites at 8.000, 36.333 and 17.567 seconds. Camera movement between casts is
 not modeled as a fixed bobber location. Actual Pi frame timing and the full
-HDMI capture format are still untested.
+HDMI capture through Rust/OpenCV are still untested. The separate v4l2/FFmpeg
+hardware check has confirmed a complete 1080p60 image and its BGR byte order.
 
 For the bite action, the relative mouse is parked at the top-left before each
 cast so it does not cover the bobber while motion is measured. On a detected

@@ -43,6 +43,10 @@ The current application expects Linux V4L2 and both gadget functions at
 runtime: keyboard `/dev/hidg0` and relative mouse `/dev/hidg1`. The supplied
 `scripts/start-hid-gadget.sh` creates both functions. Use the real Pi to
 validate HDMI input, USB reports, pointer position, latency and power delivery.
+For the C790 CSI pipeline and a live test without HID, see
+[the Pi 5 guide](pi5-c790.md). The user's v4l2/FFmpeg check confirms 1080p60
+input and full-frame BGR decoding; the shared Rust capture path still needs
+live validation.
 On a Pi 5, USB gadget/device mode is available on its **USB-C power port**, not
 the USB-A ports. Raspberry Pi's [OTG guide](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-009276-WP-1-Using%20OTG%20mode%20on%20Raspberry%20Pi%20SBCs)
 specifies `dtoverlay=dwc2,dr_mode=peripheral` in `/boot/firmware/config.txt`.
