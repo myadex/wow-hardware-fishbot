@@ -7,7 +7,9 @@ use opencv::{
 };
 use std::time::{Duration, Instant};
 use wow_hardware_fishbot::{
-    capture::LiveCapture, find_bobber_in_frame, load_color_templates, load_templates,
+    bite::{measure_splash, monitor_rect as bite_monitor_rect},
+    capture::LiveCapture,
+    find_bobber_in_frame, load_color_templates, load_templates,
 };
 
 use rand::Rng;
@@ -64,16 +66,6 @@ fn save_debug_frame(frame: &Mat, filename: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn bite_monitor_rect(rect: Rect) -> Rect {
-    // The 32-pixel color crops include a water border. Exclude that border
-    // so short bobber motion does not get diluted by a larger area threshold.
-    if (30..=48).contains(&rect.width) && (30..=48).contains(&rect.height) {
-        Rect::new(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6)
-    } else {
-        rect
-    }
-}
-
 fn desktop_size_override() -> Result<Option<Size>, Box<dyn Error>> {
     match (
         std::env::var("FISHBOT_SCREEN_WIDTH").ok(),
@@ -99,26 +91,12 @@ fn detect_splash(
     current_frame: &Mat,
     rect: Rect,
 ) -> Result<bool, Box<dyn Error>> {
-    // Calculate the absolute difference between frames
-    let mut diff_frame = Mat::default();
-    core::absdiff(prev_frame, current_frame, &mut diff_frame)?;
-
-    // Extract the region of interest (ROI) around the bobber
-    let roi = Mat::roi(&diff_frame, rect)?;
-
-    // Apply threshold to convert differences to binary (black/white)
-    let mut thresh_frame = Mat::default();
-    imgproc::threshold(&roi, &mut thresh_frame, 20.0, 255.0, imgproc::THRESH_BINARY)?;
-
-    // Count non-zero pixels (white pixels indicating movement)
-    let non_zero_count = core::count_non_zero(&thresh_frame)?;
-
-    // If enough pixels changed, consider it a splash
-    let splash_detected = (non_zero_count as f64) >= rect.area() as f64 * 0.12;
-
-    print!("{non_zero_count}/{} ", rect.area());
-
-    Ok(splash_detected)
+    let measurement = measure_splash(prev_frame, current_frame, rect)?;
+    print!(
+        "{}/{} ",
+        measurement.changed_pixels, measurement.total_pixels
+    );
+    Ok(measurement.is_candidate())
 }
 
 #[cfg(test)]
@@ -263,13 +241,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         save_debug_frame(&debug_frame, "captured_frame.jpg")?;
 
+        // Detection/debug encoding can take time. Drain queued frames before
+        // starting motion comparisons rather than counting that delay as a bite.
+        let baseline = frame_to_gray(&capture_frame(&mut cap)?)?;
         // detect splash
-        let splash_detected = wait_for_splash(
-            &mut cap,
-            lure_location_rect,
-            timeout,
-            frame_to_gray(&frame)?,
-        )?;
+        let splash_detected = wait_for_splash(&mut cap, lure_location_rect, timeout, baseline)?;
 
         if splash_detected {
             let target = map_bobber(detection.rect, frame.size()?, desktop_size)?;

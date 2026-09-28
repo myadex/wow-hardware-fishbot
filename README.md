@@ -12,6 +12,8 @@ without capture or HID devices. The bundled color crops are in `color-templates/
 For Pi 5 / C790 setup and a live image test without HID input, see
 [the C790 guide](docs/pi5-c790.md). The bot and `capture-test` share startup
 frame discard and configurable `FISHBOT_SWAP_RB` color correction.
+`bite-test` records live motion candidates, CSV measurements and before/after
+review images without HID input, using the bot's motion rule.
 The Pi bot casts with key `2`. When it detects a bite, it moves the USB HID
 mouse to the bobber and right-clicks. Both keyboard (`/dev/hidg0`) and mouse
 (`/dev/hidg1`) gadget functions are required. The pointer is parked at the

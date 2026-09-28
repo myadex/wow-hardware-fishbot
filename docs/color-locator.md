@@ -27,8 +27,11 @@ The original full frame remains local under ignored `samples/`.
 Regression with this crop preserves 8/9 correct non-source screenshot
 localizations and 0/9 negative screenshot matches, as well as the same
 18 reviewed positive video locations and rejection of two pre-bobber frames.
-171459 remains missed. No new independent Pi recording or negative Pi scene
-has yet been checked. See [the live check](pi5-c790.md) for that next step.
+171459 remains missed. A later live Pi check detected a new cast with the
+existing `video2-bobber.png@1.2` template at score 0.7832 and rectangle
+`(1163,401,38,38)`; the user-supplied review image places it on the bobber.
+One user-confirmed no-bobber live check returned `NO MATCH`. This is only one
+positive and one negative hardware sample. See [the live check](pi5-c790.md).
 
 On the inspected screenshot development set there are 16 labeled positives and
 9 negatives. Seven positive screenshots are sources of a shipped crop (six
@@ -47,9 +50,10 @@ The color matches from the videos are 32×32. Their water border dilutes the
 12%-changed-pixel bite rule, so the bot monitors the inner 26×26 rectangle for
 these matches. Offline replay with these rectangles detects the three confirmed
 bites at 8.000, 36.333 and 17.567 seconds. Camera movement between casts is
-not modeled as a fixed bobber location. Actual Pi frame timing and the full
-HDMI capture through Rust/OpenCV are still untested. The separate v4l2/FFmpeg
-hardware check has confirmed a complete 1080p60 image and its BGR byte order.
+not modeled as a fixed bobber location. Both v4l2/FFmpeg and Rust/OpenCV
+hardware checks have now produced complete 1080p60 images with correct
+colors using the explicit byte-order correction. Actual Pi monitoring frame
+timing and live bite behavior still need the HID-free `bite-test` check.
 
 For the bite action, the relative mouse is parked at the top-left before each
 cast so it does not cover the bobber while motion is measured. On a detected

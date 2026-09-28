@@ -6,6 +6,7 @@ use opencv::{
 use std::{error::Error, path::Path};
 
 pub type VisionResult<T> = Result<T, Box<dyn Error>>;
+pub mod bite;
 pub mod capture;
 mod color_locator;
 pub mod colors;
