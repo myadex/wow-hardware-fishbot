@@ -31,15 +31,30 @@ dependencies deliberately, update and commit `Cargo.lock` with the manifest chan
 
 The Linux build workflow runs on pushes and pull requests. Its logs record the
 Rust, Clang and native OpenCV versions. It compiles the application and test
-targets without starting the application or accessing a capture or HID device.
+targets and runs synthetic image-recognition tests without starting the hardware
+application or accessing a capture or HID device.
 
 Passing this workflow does not demonstrate image-detection accuracy or Pi
-compatibility. Image regression tests, formatting/lint checks and the Raspberry
+compatibility. Gameplay image regression tests, formatting/lint checks and the Raspberry
 Pi hardware acceptance run remain tracked in
 [issue #7](https://github.com/myadex/wow-hardware-fishbot/issues/7).
 
-The current application expects Linux V4L2 and `/dev/hidg*` devices at runtime.
-Use the real Pi to validate HDMI input, USB reports, latency and power delivery.
+The current application expects Linux V4L2 and both gadget functions at
+runtime: keyboard `/dev/hidg0` and relative mouse `/dev/hidg1`. The supplied
+`scripts/start-hid-gadget.sh` creates both functions. Use the real Pi to
+validate HDMI input, USB reports, pointer position, latency and power delivery.
+For the C790 CSI pipeline and a live test without HID, see
+[the Pi 5 guide](pi5-c790.md). The user has confirmed complete, color-correct
+1080p60 capture through v4l2/FFmpeg and the shared Rust path, one correctly
+located bobber, and one rejected no-bobber frame. Live bite behavior remains
+to be checked with `bite-test` before HID actions.
+On a Pi 5, USB gadget/device mode is available on its **USB-C power port**, not
+the USB-A ports. Raspberry Pi's [OTG guide](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-009276-WP-1-Using%20OTG%20mode%20on%20Raspberry%20Pi%20SBCs)
+specifies `dtoverlay=dwc2,dr_mode=peripheral` in `/boot/firmware/config.txt`.
+That USB-C port must connect to the game PC for the keyboard/mouse gadget.
+The kit's 27 W USB-C power supply therefore cannot occupy that same port at
+the same time; arrange adequate power separately before relying on the gadget.
+PC USB power alone may be insufficient for a Pi 5 with an NVMe SSD and cooler.
 An x86-64 CI executable cannot be run on the ARM64 Raspberry Pi; build on the Pi
 for the hardware run. Raspberry Pi OS and its native dependency versions still
 need to be validated on the actual device.

@@ -2,7 +2,8 @@
 name = "wow-hardware-fishbot"
 version = "0.1.0"
 edition = "2024"
+default-run = "wow-hardware-fishbot"
 
 [dependencies]
-opencv = "0.95.1"
+opencv = { version = "0.95.1", default-features = false, features = ["clang-runtime", "imgcodecs", "imgproc", "videoio"] }
 rand = "0.9.2"
